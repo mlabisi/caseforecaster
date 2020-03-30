@@ -26,15 +26,19 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 public class CaseForecaster {
-    private static LinearRegressionModel model;
+    private static LinearRegressionModel countyModel;
+    private static LinearRegressionModel stateModel;
+    private static Map<Double, String> fipsToCounty;
     private static SparkSession spark = SparkSession.builder().master("local[*]").appName("Case Predictor").getOrCreate();
 
 
     private static void gatherData(String dataURL) {
         String dataPath = FilenameUtils.concat(System.getProperty("java.io.tmpdir"), "itscoronatime/");
         String fileName = "covid-19-counties.csv";
+        // TODO: Add support for state data
 
         List<Row> trainingData = new ArrayList<>();
         List<Row> testingData = new ArrayList<>();
@@ -92,10 +96,10 @@ public class CaseForecaster {
         LinearRegression linReg = new LinearRegression().setFeaturesCol("features").setLabelCol("cases");
 
         // train model
-        model = linReg.fit(training);
+        countyModel = linReg.fit(training);
 
         // test model
-        Dataset<Row> results = model.transform(testing);
+        Dataset<Row> results = countyModel.transform(testing);
 //        Dataset<Row> entries = results.select("features", "cases", "prediction");
 //        for (Row entry: entries.collectAsList()) {
 //            System.out.println("(" + entry.get(0) + ", " + entry.get(1) + ") -> prediction=" + entry.get(2));
@@ -110,7 +114,7 @@ public class CaseForecaster {
         double datecode = Integer.parseInt(date.replaceAll("-", ""));
 
         Vector input = Vectors.dense(fips, datecode);
-        int casesCt = (int) model.predict(input);
+        int casesCt = (int) countyModel.predict(input);
         System.out.println("I predict there will be " + casesCt + " cases in " + county + " on " + date + ".");
     }
 
