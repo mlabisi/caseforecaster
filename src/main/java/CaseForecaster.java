@@ -29,12 +29,12 @@ import java.util.List;
 
 public class CaseForecaster {
     private static LinearRegressionModel model;
+    private static SparkSession spark = SparkSession.builder().master("local[*]").appName("Case Predictor").getOrCreate();
+
 
     private static void gatherData(String dataURL) {
         String dataPath = FilenameUtils.concat(System.getProperty("java.io.tmpdir"), "itscoronatime/");
         String fileName = "covid-19-counties.csv";
-
-        SparkSession spark = SparkSession.builder().master("local[*]").appName("Case Predictor").getOrCreate();
 
         List<Row> trainingData = new ArrayList<>();
         List<Row> testingData = new ArrayList<>();
@@ -67,7 +67,7 @@ public class CaseForecaster {
                 double fips = Integer.parseInt(record.get("fips"));
                 double cases = Integer.parseInt(record.get("cases"));
 
-                if(++rows > 10000 ) {
+                if(++rows > 16000 ) {
                     testingData.add(RowFactory.create(cases, Vectors.dense(fips, date)));
                 } else {
                     trainingData.add(RowFactory.create(cases, Vectors.dense(fips, date)));
@@ -76,6 +76,8 @@ public class CaseForecaster {
         } catch (IOException e) {
             e.printStackTrace();
         }
+
+        System.out.println("Total number of rows: " + rows);
 
         // Prepare training and testing data
         StructType schema = new StructType(new StructField[]{
