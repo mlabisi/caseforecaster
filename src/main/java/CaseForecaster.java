@@ -25,33 +25,72 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 public class CaseForecaster {
     private static LinearRegressionModel countyModel;
     private static LinearRegressionModel stateModel;
-    private static Map<Double, String> fipsToCounty;
     private static SparkSession spark = SparkSession.builder().master("local[*]").appName("Case Predictor").getOrCreate();
+    private static Map<String, Double> fipsToLocation = new HashMap<>();
 
+    private static final String COUNTRIES_URL = "https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv";
+    private static final String STATES_URL = "https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-states.csv";
+    private static final String DATA_PATH = FilenameUtils.concat(System.getProperty("java.io.tmpdir"), "itscoronatime/");
+    private static final String COUNTIES_FILE = "covid-19-counties.csv";
+    private static final String STATES_FILE = "covid-19-states.csv";
 
-    private static void gatherData(String dataURL) {
-        String dataPath = FilenameUtils.concat(System.getProperty("java.io.tmpdir"), "itscoronatime/");
-        String fileName = "covid-19-counties.csv";
-        // TODO: Add support for state data
+    private static void trainModels() {
+        List<Row> cTrainingData = new ArrayList<>();
+        List<Row> cTestingData = new ArrayList<>();
 
-        List<Row> trainingData = new ArrayList<>();
-        List<Row> testingData = new ArrayList<>();
-        int rows = 0;
+        List<Row> sTrainingData = new ArrayList<>();
+        List<Row> sTestingData = new ArrayList<>();
 
-        System.out.println("Generating data from given source: " + dataURL);
+        // gather and process county data
+        gatherData(COUNTIES_FILE, COUNTRIES_URL);
+        int countyRows = processData(COUNTIES_FILE, cTrainingData, cTestingData);
+
+        // gather and process state data
+        gatherData(STATES_FILE, STATES_URL);
+        int stateRows = processData(STATES_FILE, sTrainingData, sTestingData);
+
+        System.out.println("Total number of county rows: " + countyRows);
+        System.out.println("Total number of state rows: " + stateRows);
+
+        // Prepare training and testing data
+        StructType schema = new StructType(new StructField[]{
+                new StructField("cases", DataTypes.DoubleType, false, Metadata.empty()),
+                new StructField("features", new VectorUDT(), false, Metadata.empty())
+        });
+        Dataset<Row> cTraining = spark.createDataFrame(cTrainingData, schema);
+        Dataset<Row> cTesting = spark.createDataFrame(cTestingData, schema);
+
+        Dataset<Row> sTraining = spark.createDataFrame(sTrainingData, schema);
+        Dataset<Row> sTesting = spark.createDataFrame(sTestingData, schema);
+
+        // define the linear regression
+        LinearRegression linReg = new LinearRegression().setFeaturesCol("features").setLabelCol("cases");
+
+        // train models
+        countyModel = linReg.fit(cTraining);
+        stateModel = linReg.fit(sTraining);
+
+        // test models
+        testModel(cTesting, countyModel);
+        testModel(sTesting, stateModel);
+    }
+
+    private static void gatherData(String filename, String url) {
+        System.out.println("Generating data from given source: " + url);
         try {
-            File dir = new File(dataPath);
+            File dir = new File(DATA_PATH);
             dir.mkdir();
 
-            File file = new File(dataPath + fileName);
-            FileUtils.copyURLToFile(new URL(dataURL), file);
-            System.out.println("Successfully created " + dataPath + fileName);
+            File file = new File(DATA_PATH + filename);
+            FileUtils.copyURLToFile(new URL(url), file);
+            System.out.println("Successfully created " + DATA_PATH + filename);
         } catch (MalformedURLException e) {
             System.out.println("Erroneous URL provided.");
             e.printStackTrace();
@@ -59,8 +98,12 @@ public class CaseForecaster {
             System.out.println("File could not be created.");
             e.printStackTrace();
         }
+    }
 
-        try (final BufferedReader reader = Files.newBufferedReader(Paths.get(dataPath + fileName), StandardCharsets.UTF_8)) {
+    private static int processData(String filename, List<Row> trainingData, List<Row> testingData) {
+        int rows = 0;
+        boolean inCountyMode = filename.contains("counties");
+        try (final BufferedReader reader = Files.newBufferedReader(Paths.get(DATA_PATH + filename), StandardCharsets.UTF_8)) {
             Iterable<CSVRecord> records = CSVFormat.RFC4180.withFirstRecordAsHeader().parse(reader);
             for (CSVRecord record : records) {
                 if(record.get("fips").equals("")) {
@@ -71,7 +114,10 @@ public class CaseForecaster {
                 double fips = Integer.parseInt(record.get("fips"));
                 double cases = Integer.parseInt(record.get("cases"));
 
-                if(++rows > 16000 ) {
+                String location = (inCountyMode ? record.get("county") + ", " : "" )+ record.get("state");
+                fipsToLocation.put(location, fips);
+
+                if(++rows > (inCountyMode ? 18000 : 1300) ) {
                     testingData.add(RowFactory.create(cases, Vectors.dense(fips, date)));
                 } else {
                     trainingData.add(RowFactory.create(cases, Vectors.dense(fips, date)));
@@ -80,52 +126,45 @@ public class CaseForecaster {
         } catch (IOException e) {
             e.printStackTrace();
         }
+        return rows;
+    }
 
-        System.out.println("Total number of rows: " + rows);
-
-        // Prepare training and testing data
-        StructType schema = new StructType(new StructField[]{
-                new StructField("cases", DataTypes.DoubleType, false, Metadata.empty()),
-                new StructField("features", new VectorUDT(), false, Metadata.empty())
-        });
-        Dataset<Row> training = spark.createDataFrame(trainingData, schema);
-        Dataset<Row> testing = spark.createDataFrame(testingData, schema);
-
-        // define the linear regression
-        // identify features and label
-        LinearRegression linReg = new LinearRegression().setFeaturesCol("features").setLabelCol("cases");
-
-        // train model
-        countyModel = linReg.fit(training);
-
-        // test model
-        Dataset<Row> results = countyModel.transform(testing);
-//        Dataset<Row> entries = results.select("features", "cases", "prediction");
-//        for (Row entry: entries.collectAsList()) {
+    private static void testModel(Dataset<Row> testing, LinearRegressionModel model) {
+        Dataset<Row> sResults = model.transform(testing);
+//        Dataset<Row> sEntries = sResults.select("features", "cases", "prediction");
+//        for (Row entry: sEntries.collectAsList()) {
 //            System.out.println("(" + entry.get(0) + ", " + entry.get(1) + ") -> prediction=" + entry.get(2));
 //        }
     }
-
-    private static void makePrediction(String county, String date) {
+    
+    private static void makePrediction(String location, String givenDate) {
         // take in a county and a date --> predict cases
         // perhaps give a dropdown to select county,
         // and calendar excluding today and past
-        double fips = getCounty(county);
-        double datecode = Integer.parseInt(date.replaceAll("-", ""));
+        double fips = getFIPS(location);
+        double date = Integer.parseInt(givenDate.replaceAll("-", ""));
+        Vector input = Vectors.dense(fips, date);
 
-        Vector input = Vectors.dense(fips, datecode);
-        int casesCt = (int) countyModel.predict(input);
-        System.out.println("I predict there will be " + casesCt + " cases in " + county + " on " + date + ".");
+        int casesCt = (int) (location.contains(",") ? countyModel.predict(input) : stateModel.predict(input));
+        System.out.println("I predict there will be " + casesCt + " cases in " + location + " on " + givenDate + ".");
     }
 
-    private static double getCounty(String county) {
-        return 53061.0;
+    private static double getFIPS(String location) {
+        return fipsToLocation.get(location);
     }
 
     public static void main(String[] args) {
-        gatherData("https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv");
-        makePrediction("Snohomish, WA", "2020-05-24");
+        trainModels();
 
-        // TODO: getCountry function, GUI for makePrediction
+        makePrediction("Snohomish, Washington", "2020-04-03");
+        makePrediction("Los Angeles, California", "2020-04-03");
+        makePrediction("Hawaii", "2020-04-03");
+        makePrediction("New York", "2020-04-03");
+
+        while (true) {
+            System.out.print("");
+        }
+
+        // TODO: GUI for makePrediction
     }
 }
