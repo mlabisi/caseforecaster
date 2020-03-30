@@ -121,5 +121,7 @@ public class CaseForecaster {
     public static void main(String[] args) {
         gatherData("https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv");
         makePrediction("Snohomish, WA", "2020-05-24");
+
+        // TODO: getCountry function, GUI for makePrediction
     }
 }
