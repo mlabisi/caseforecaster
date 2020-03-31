@@ -3,13 +3,12 @@ import org.apache.commons.io.FilenameUtils;
 import org.apache.spark.ml.Pipeline;
 import org.apache.spark.ml.PipelineModel;
 import org.apache.spark.ml.PipelineStage;
+import org.apache.spark.ml.evaluation.RegressionEvaluator;
 import org.apache.spark.ml.feature.*;
-import org.apache.spark.ml.linalg.VectorUDT;
-import org.apache.spark.ml.regression.DecisionTreeRegressor;
-import org.apache.spark.ml.regression.LinearRegression;
-import org.apache.spark.ml.regression.LinearRegressionModel;
+import org.apache.spark.ml.regression.*;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
+import org.apache.spark.sql.RowFactory;
 import org.apache.spark.sql.SparkSession;
 import org.apache.spark.sql.types.DataTypes;
 import org.apache.spark.sql.types.Metadata;
@@ -20,15 +19,17 @@ import java.io.File;
 import java.io.IOException;
 import java.net.MalformedURLException;
 import java.net.URL;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
 
 public class CaseForecaster {
     private static LinearRegressionModel countyModel;
     private static LinearRegressionModel stateModel;
+    private static PipelineModel cModel;
+    private static PipelineModel sModel;
 
     private static SparkSession spark = SparkSession.builder().master("local[*]").appName("Case Predictor").getOrCreate();
-    private static Map<String, Integer> fipsToLocation = new HashMap<>();
+    private static Map<String, Integer> locationToFIPS = new HashMap<>();
+    private static Map<String, Integer> dateToIndex = new HashMap<>();
 
     private static final String COUNTRIES_URL = "https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv";
     private static final String STATES_URL = "https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-states.csv";
@@ -36,138 +37,31 @@ public class CaseForecaster {
     private static final String COUNTIES_FILE = "covid-19-counties.csv";
     private static final String STATES_FILE = "covid-19-states.csv";
 
-//    private static void trainModels() {
-//        // gather and process county data
-//        Dataset<Row> cDataFrame = gatherData(COUNTIES_FILE, COUNTRIES_URL);
-//        int countyRows = processData(COUNTIES_FILE, cDataFrame);
-//
-//        // gather and process state data
-//        Dataset<Row> sDataFrame = gatherData(STATES_FILE, STATES_URL);
-//        int stateRows = processData(STATES_FILE, sDataFrame);
-//
-//        // prepare training and testing data
-////        Dataset<Row> cTraining = spark.createDataFrame(cTrainingData, schema);
-////        Dataset<Row> cTesting = spark.createDataFrame(cTestingData, schema);
-////
-////        Dataset<Row> sTraining = spark.createDataFrame(sTrainingData, schema);
-////        Dataset<Row> sTesting = spark.createDataFrame(sTestingData, schema);
-////
-////        // define the linear regression
-////        LinearRegression linReg = new LinearRegression().setFeaturesCol("features").setLabelCol("cases");
-////
-////        // train models
-////        countyModel = linReg.fit(cTraining);
-////        stateModel = linReg.fit(sTraining);
-////
-////        // test models
-////        testModel(cTesting, countyModel);
-////        testModel(sTesting, stateModel);
-//    }
+    // configure csv input schema
+    private static StructType stateSchema = new StructType(
+            new StructField[]{
+                    new StructField("date", DataTypes.StringType, false, Metadata.empty()),
+                    new StructField("state", DataTypes.StringType, false, Metadata.empty()),
+                    new StructField("fips", DataTypes.IntegerType, false, Metadata.empty()),
+                    new StructField("cases", DataTypes.IntegerType, false, Metadata.empty()),
+                    new StructField("deaths", DataTypes.IntegerType, false, Metadata.empty())
+            }
+    );
 
-//    private static Dataset<Row> gatherData(String filename, String url) {
-//        System.out.println("Generating data from given source: " + url);
-//        boolean inCountyMode = filename.contains("counties");
-//        Dataset<Row> data = null;
-//        try {
-//            File dir = new File(DATA_PATH);
-//            dir.mkdir();
-//
-//            // store fresh copy of dataset in our cache
-//            File file = new File(DATA_PATH + filename);
-//            FileUtils.copyURLToFile(new URL(url), file);
-//            System.out.println("Successfully created " + DATA_PATH + filename);
-//
-//            // load the data as a Dataframe
-//            data = spark.read().format("csv").option("header", true).load(DATA_PATH + filename);
-////            data = data.drop("deaths");
-//
-//            FeatureHasher hasher = new FeatureHasher()
-//                    .setInputCols(inCountyMode ? new String[]{"date", "county", "state", "fips"} : new String[]{"date", "state", "fips"})
-//                    .setOutputCol("features");
-//
-//            data = hasher.transform(data);
-//            data.show(false);
-//        } catch (MalformedURLException e) {
-//            System.out.println("Erroneous URL provided.");
-//            e.printStackTrace();
-//        } catch (IOException e) {
-//            System.out.println("File could not be created.");
-//            e.printStackTrace();
-//        }
-//
-//        return data;
-//    }
-//
-//    private static int processData(String filename, Dataset<Row> dataframe) {
-//        // define decision tree regression
-//        DecisionTreeRegressor decTree = new DecisionTreeRegressor().setFeaturesCol("features")/*.setLabelCol("cases")*/;
-//
-//        Pipeline pipeline = new Pipeline().setStages(new PipelineStage[]{decTree});
-//        int rows = 0;
-////        try (final BufferedReader reader = Files.newBufferedReader(Paths.get(DATA_PATH + filename), StandardCharsets.UTF_8)) {
-////            boolean inCountyMode = filename.contains("counties");
-////            Dataset<Row>[] splits = dataframe.randomSplit(new double[]{0.7, 0.3});
-////            Dataset<Row> trainingData = splits[0];
-////            Dataset<Row> testingData = splits[1];
-////
-////            StructType schema = new StructType(new StructField[]{
-////                    new StructField("cases", DataTypes.DoubleType, false, Metadata.empty()),
-////                    new StructField("features", new VectorUDT(), false, Metadata.empty())
-////            });
-////
-////            Iterable<CSVRecord> records = CSVFormat.RFC4180.withFirstRecordAsHeader().parse(reader);
-////            for (CSVRecord record : records) {
-////                if (record.get("fips").equals("")) {
-////                    continue;
-////                }
-////
-////                double date = Integer.parseInt(record.get("date").replaceAll("-", ""));
-////                double fips = Integer.parseInt(record.get("fips"));
-////                double cases = Integer.parseInt(record.get("cases"));
-////
-////                String location = (inCountyMode ? record.get("county") + ", " : "") + record.get("state");
-////                fipsToLocation.put(location, fips);
-////
-//////                if(++rows > (inCountyMode ? 18000 : 1300) ) {
-//////                    testingData.add(RowFactory.create(cases, Vectors.dense(fips, date)));
-//////                } else {
-//////                    trainingData.add(RowFactory.create(cases, Vectors.dense(fips, date)));
-//////                }
-////            }
-////        } catch (IOException e) {
-////            e.printStackTrace();
-////        }
-//        return rows;
-//    }
-//
-//    private static void testModel(Dataset<Row> testing, LinearRegressionModel model) {
-//        Dataset<Row> sResults = model.transform(testing);
-////        Dataset<Row> sEntries = sResults.select("features", "cases", "prediction");
-////        for (Row entry: sEntries.collectAsList()) {
-////            System.out.println("(" + entry.get(0) + ", " + entry.get(1) + ") -> prediction=" + entry.get(2));
-////        }
-//    }
-//
-//    private static void makePrediction(String location, String givenDate) {
-//        // take in a county and a date --> predict cases
-//        // perhaps give a dropdown to select county,
-//        // and calendar excluding today and past
-//        double fips = getFIPS(location);
-//        double date = Integer.parseInt(givenDate.replaceAll("-", ""));
-//        Vector input = Vectors.dense(fips, date);
-//
-//        int casesCt = (int) (location.contains(",") ? countyModel.predict(input) : stateModel.predict(input));
-//        System.out.println("I predict there will be " + casesCt + " cases in " + location + " on " + givenDate + ".");
-//    }
-//
-//    private static double getFIPS(String location) {
-//        return fipsToLocation.get(location);
-//    }
+    private static StructType countySchema = new StructType(
+            new StructField[]{
+                    new StructField("date", DataTypes.StringType, false, Metadata.empty()),
+                    new StructField("county", DataTypes.StringType, false, Metadata.empty()),
+                    new StructField("state", DataTypes.StringType, false, Metadata.empty()),
+                    new StructField("fips", DataTypes.IntegerType, false, Metadata.empty()),
+                    new StructField("cases", DataTypes.IntegerType, false, Metadata.empty()),
+                    new StructField("deaths", DataTypes.IntegerType, false, Metadata.empty())
+            }
+    );
 
     private static void gatherData(String filename, String url) {
         System.out.println("Generating data from given source: " + url);
         boolean inCountyMode = filename.contains("counties");
-        Dataset<Row> data = null;
         try {
             File dir = new File(DATA_PATH);
             dir.mkdir();
@@ -177,34 +71,15 @@ public class CaseForecaster {
             FileUtils.copyURLToFile(new URL(url), file);
             System.out.println("Successfully created " + DATA_PATH + filename);
 
-            // configure csv input schema
-            StructType csvSchema = new StructType(
-                    inCountyMode ?
-                            new StructField[]{
-                                    new StructField("date", DataTypes.StringType, false, Metadata.empty()),
-                                    new StructField("county", DataTypes.StringType, false, Metadata.empty()),
-                                    new StructField("state", DataTypes.StringType, false, Metadata.empty()),
-                                    new StructField("fips", DataTypes.IntegerType, false, Metadata.empty()),
-                                    new StructField("cases", DataTypes.IntegerType, false, Metadata.empty()),
-                                    new StructField("deaths", DataTypes.IntegerType, false, Metadata.empty())
-                            }
-                            : new StructField[]{
-                            new StructField("date", DataTypes.StringType, false, Metadata.empty()),
-                            new StructField("state", DataTypes.StringType, false, Metadata.empty()),
-                            new StructField("fips", DataTypes.IntegerType, false, Metadata.empty()),
-                            new StructField("cases", DataTypes.IntegerType, false, Metadata.empty()),
-                            new StructField("deaths", DataTypes.IntegerType, false, Metadata.empty())
-                    });
-
             // load the data as a Dataframe
-            data = spark.read().format("csv").option("header", true).schema(csvSchema).load(DATA_PATH + filename);
+            Dataset<Row> data = spark.read().format("csv").option("header", true).schema(inCountyMode ? countySchema : stateSchema).load(DATA_PATH + filename);
 
-            // build up location to FIPS index
+            // build up location to FIPS index and "double-ize" dates
             data.foreach(row -> {
                 if ((inCountyMode ? row.get(3) : row.get(2)) != null) {
                     String location = (inCountyMode ? row.getString(1) + ", " + row.getString(2) : row.getString(1));
                     int fips = (inCountyMode ? row.getInt(3) : row.getInt(2));
-                    fipsToLocation.put(location, fips);
+                    locationToFIPS.put(location, fips);
                 }
             });
 
@@ -215,7 +90,7 @@ public class CaseForecaster {
             }
 
             // split all data into training data and testing data
-            Dataset<Row>[] splits = data.randomSplit(new double[]{0.7, 0.3});
+            Dataset<Row>[] splits = data.randomSplit(new double[]{0.65, 0.35});
             Dataset<Row> trainingData = splits[0];
             Dataset<Row> testingData = splits[1];
 
@@ -228,20 +103,34 @@ public class CaseForecaster {
                     .setInputCols(new String[]{"indexedDate", "fips"})
                     .setOutputCol("features")
                     .setHandleInvalid("skip");
-            LinearRegression dtReg = new LinearRegression()
+            DecisionTreeRegressor linReg = new DecisionTreeRegressor()
                     .setFeaturesCol("features")
-                    .setLabelCol("cases");
+                    .setLabelCol("cases")
+                    .setPredictionCol("prediction")
+                    .setVarianceCol("var")
+                    .setMaxBins(Integer.MAX_VALUE);
             Pipeline pipeline = new Pipeline()
-                    .setStages(new PipelineStage[]{indexer, assembler, dtReg});
+                    .setStages(new PipelineStage[]{indexer, assembler, linReg});
 
             // train model
-            PipelineModel model = pipeline.fit(trainingData);
+            // create linear regression model
+            if (inCountyMode) {
+                cModel = pipeline.fit(trainingData);
+            } else {
+                sModel = pipeline.fit(trainingData);
+            }
 
             // test model
-            Dataset<Row> predictions = model.transform(testingData);
-            for (Row entry : predictions.select("features", "cases").collectAsList()) {
-                System.out.println("(" + entry.get(0) + ") -> predicted cases=" + entry.get(1));
-            }
+            Dataset<Row> predictions = inCountyMode ? cModel.transform(testingData): sModel.transform(testingData);
+            predictions.show(false);
+
+            // Select (prediction, true label) and compute test error.
+            RegressionEvaluator evaluator = new RegressionEvaluator()
+                    .setLabelCol("cases")
+                    .setPredictionCol("prediction")
+                    .setMetricName("rmse");
+            double rmse = evaluator.evaluate(predictions);
+            System.out.println("Root Mean Squared Error (RMSE) on test data = " + rmse);
         } catch (MalformedURLException e) {
             System.out.println("Erroneous URL provided.");
             e.printStackTrace();
@@ -249,6 +138,39 @@ public class CaseForecaster {
             System.out.println("File could not be created.");
             e.printStackTrace();
         }
+    }
+
+    // take in a county and a date --> predict cases
+    // perhaps give a dropdown to select county,
+    // and calendar excluding today and past
+    private static void makePrediction(String location, String date) {
+        boolean inCountyMode = location.contains(",");
+        int fips = getFIPS(location);
+        List<Row> inputData;
+
+        // prepare user input for pipeline
+        if (inCountyMode) {
+            String[] splitLocation = location.replace(",", "").split("\\s+");
+            String county = splitLocation[0];
+            String state = splitLocation[1];
+
+            inputData = Collections.singletonList(RowFactory.create(date, county, state, fips, 0, 0));
+        } else {
+            inputData = Collections.singletonList(RowFactory.create(date, location, fips, 0, 0));
+        }
+
+        Dataset<Row> input = spark.createDataFrame(inputData, inCountyMode ? countySchema : stateSchema);
+
+        Dataset<Row> output = inCountyMode ? cModel.transform(input): sModel.transform(input);
+        output.select("cases", "prediction").show(false);
+//        (inCountyMode ? cModel.transform(input) : sModel.transform(input)).show(false);
+
+//        int casesCt = (inCountyMode ? cModel.transform(input) : sModel.transform(input)).select("prediction").collectAsList().get(0).getInt(0);
+//        System.out.println("I predict there will be " + casesCt + " cases in " + location + " on " + date + ".");
+    }
+
+    private static int getFIPS(String location) {
+        return locationToFIPS.get(location);
     }
 
     private static void runModels() {
@@ -267,7 +189,7 @@ public class CaseForecaster {
 
     public static void main(String[] args) {
         runModels();
-//
+
 //        makePrediction("Snohomish, Washington", "2020-04-03");
 //        makePrediction("Los Angeles, California", "2020-04-03");
 //        makePrediction("Hawaii", "2020-04-03");
@@ -278,5 +200,9 @@ public class CaseForecaster {
         }
 
         // TODO: GUI for makePrediction
+    }
+
+    private static void chooseModel() {
+
     }
 }
