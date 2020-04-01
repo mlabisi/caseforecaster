@@ -182,6 +182,9 @@ public class CasePredictor {
         gatherData(STATES_FILE, STATES_URL);
     }
 
+    // TODO: Use a library that doesn't force features to be doubles.
+    //       it's important that the features act more like categories/classes
+    //       but the total problem should still be a regression problem
     public static void main(String[] args) {
         runModels();
 
