@@ -3,6 +3,7 @@ import org.apache.commons.io.FilenameUtils;
 import org.apache.spark.ml.Pipeline;
 import org.apache.spark.ml.PipelineModel;
 import org.apache.spark.ml.PipelineStage;
+import org.apache.spark.ml.classification.MultilayerPerceptronClassifier;
 import org.apache.spark.ml.evaluation.RegressionEvaluator;
 import org.apache.spark.ml.feature.*;
 import org.apache.spark.ml.regression.*;
@@ -21,15 +22,12 @@ import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.*;
 
-public class CaseForecaster {
-    private static LinearRegressionModel countyModel;
-    private static LinearRegressionModel stateModel;
+public class CasePredictor {
     private static PipelineModel cModel;
     private static PipelineModel sModel;
 
     private static SparkSession spark = SparkSession.builder().master("local[*]").appName("Case Predictor").getOrCreate();
-    private static Map<String, Integer> locationToFIPS = new HashMap<>();
-    private static Map<String, Integer> dateToIndex = new HashMap<>();
+    private static Map<String, Double> locationToFIPS = new HashMap<>();
 
     private static final String COUNTRIES_URL = "https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv";
     private static final String STATES_URL = "https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-states.csv";
@@ -42,9 +40,9 @@ public class CaseForecaster {
             new StructField[]{
                     new StructField("date", DataTypes.StringType, false, Metadata.empty()),
                     new StructField("state", DataTypes.StringType, false, Metadata.empty()),
-                    new StructField("fips", DataTypes.IntegerType, false, Metadata.empty()),
-                    new StructField("cases", DataTypes.IntegerType, false, Metadata.empty()),
-                    new StructField("deaths", DataTypes.IntegerType, false, Metadata.empty())
+                    new StructField("fips", DataTypes.DoubleType, false, Metadata.empty()),
+                    new StructField("cases", DataTypes.DoubleType, false, Metadata.empty()),
+                    new StructField("deaths", DataTypes.DoubleType, false, Metadata.empty())
             }
     );
 
@@ -53,9 +51,9 @@ public class CaseForecaster {
                     new StructField("date", DataTypes.StringType, false, Metadata.empty()),
                     new StructField("county", DataTypes.StringType, false, Metadata.empty()),
                     new StructField("state", DataTypes.StringType, false, Metadata.empty()),
-                    new StructField("fips", DataTypes.IntegerType, false, Metadata.empty()),
-                    new StructField("cases", DataTypes.IntegerType, false, Metadata.empty()),
-                    new StructField("deaths", DataTypes.IntegerType, false, Metadata.empty())
+                    new StructField("fips", DataTypes.DoubleType, false, Metadata.empty()),
+                    new StructField("cases", DataTypes.DoubleType, false, Metadata.empty()),
+                    new StructField("deaths", DataTypes.DoubleType, false, Metadata.empty())
             }
     );
 
@@ -78,39 +76,32 @@ public class CaseForecaster {
             data.foreach(row -> {
                 if ((inCountyMode ? row.get(3) : row.get(2)) != null) {
                     String location = (inCountyMode ? row.getString(1) + ", " + row.getString(2) : row.getString(1));
-                    int fips = (inCountyMode ? row.getInt(3) : row.getInt(2));
+                    double fips = (inCountyMode ? row.getDouble(3) : row.getDouble(2));
                     locationToFIPS.put(location, fips);
                 }
             });
 
-            // remove location since we have the fips
-            data.drop("state");
-            if (inCountyMode) {
-                data.drop("county");
-            }
-
-            // split all data into training data and testing data
-            Dataset<Row>[] splits = data.randomSplit(new double[]{0.65, 0.35});
-            Dataset<Row> trainingData = splits[0];
-            Dataset<Row> testingData = splits[1];
-
             // configure pipeline
-            StringIndexer indexer = new StringIndexer()
+            StringIndexer dateIndexer = new StringIndexer()
                     .setInputCol("date")
                     .setOutputCol("indexedDate")
                     .setHandleInvalid("skip");
             VectorAssembler assembler = new VectorAssembler()
-                    .setInputCols(new String[]{"indexedDate", "fips"})
+                    .setInputCols(new String[]{dateIndexer.getOutputCol(), "fips"})
                     .setOutputCol("features")
                     .setHandleInvalid("skip");
-            DecisionTreeRegressor linReg = new DecisionTreeRegressor()
-                    .setFeaturesCol("features")
+            DecisionTreeRegressor dtReg = new DecisionTreeRegressor()
+                    .setFeaturesCol(assembler.getOutputCol())
                     .setLabelCol("cases")
-                    .setPredictionCol("prediction")
                     .setVarianceCol("var")
-                    .setMaxBins(Integer.MAX_VALUE);
+                    .setMaxBins(data.collectAsList().size());
             Pipeline pipeline = new Pipeline()
-                    .setStages(new PipelineStage[]{indexer, assembler, linReg});
+                    .setStages(new PipelineStage[]{dateIndexer, assembler, dtReg});
+
+            // split all data into training data and testing data
+            Dataset<Row>[] splits = data.randomSplit(new double[]{0.7, 0.3});
+            Dataset<Row> trainingData = splits[0];
+            Dataset<Row> testingData = splits[1];
 
             // train model
             // create linear regression model
@@ -122,7 +113,7 @@ public class CaseForecaster {
 
             // test model
             Dataset<Row> predictions = inCountyMode ? cModel.transform(testingData): sModel.transform(testingData);
-            predictions.show(false);
+//            predictions.select("cases", "prediction").show(false);
 
             // Select (prediction, true label) and compute test error.
             RegressionEvaluator evaluator = new RegressionEvaluator()
@@ -131,6 +122,10 @@ public class CaseForecaster {
                     .setMetricName("rmse");
             double rmse = evaluator.evaluate(predictions);
             System.out.println("Root Mean Squared Error (RMSE) on test data = " + rmse);
+
+            DecisionTreeRegressionModel treeModel =
+                    (DecisionTreeRegressionModel) (inCountyMode ? cModel.stages()[2] : sModel.stages()[2]);
+            System.out.println("Learned regression tree model:\n" + treeModel.toDebugString());
         } catch (MalformedURLException e) {
             System.out.println("Erroneous URL provided.");
             e.printStackTrace();
@@ -145,7 +140,7 @@ public class CaseForecaster {
     // and calendar excluding today and past
     private static void makePrediction(String location, String date) {
         boolean inCountyMode = location.contains(",");
-        int fips = getFIPS(location);
+        double fips = getFIPS(location);
         List<Row> inputData;
 
         // prepare user input for pipeline
@@ -169,7 +164,7 @@ public class CaseForecaster {
 //        System.out.println("I predict there will be " + casesCt + " cases in " + location + " on " + date + ".");
     }
 
-    private static int getFIPS(String location) {
+    private static double getFIPS(String location) {
         return locationToFIPS.get(location);
     }
 
