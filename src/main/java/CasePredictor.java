@@ -23,9 +23,12 @@ import org.datavec.api.writable.Writable;
 import org.deeplearning4j.api.storage.StatsStorage;
 import org.deeplearning4j.datasets.datavec.RecordReaderDataSetIterator;
 import org.deeplearning4j.datasets.datavec.SequenceRecordReaderDataSetIterator;
+import org.deeplearning4j.nn.api.OptimizationAlgorithm;
 import org.deeplearning4j.nn.conf.MultiLayerConfiguration;
 import org.deeplearning4j.nn.conf.NeuralNetConfiguration;
+import org.deeplearning4j.nn.conf.Updater;
 import org.deeplearning4j.nn.conf.layers.DenseLayer;
+import org.deeplearning4j.nn.conf.layers.GravesLSTM;
 import org.deeplearning4j.nn.conf.layers.OutputLayer;
 import org.deeplearning4j.nn.conf.layers.RnnOutputLayer;
 import org.deeplearning4j.nn.multilayer.MultiLayerNetwork;
@@ -38,8 +41,10 @@ import org.nd4j.linalg.activations.Activation;
 import org.nd4j.linalg.api.ndarray.INDArray;
 import org.nd4j.linalg.dataset.DataSet;
 import org.nd4j.linalg.dataset.api.iterator.DataSetIterator;
-import org.nd4j.linalg.learning.config.Nesterovs;
+import org.nd4j.linalg.dataset.api.preprocessor.NormalizerMinMaxScaler;
 import org.nd4j.linalg.lossfunctions.LossFunctions;
+import org.jfree.data.xy.XYSeries;
+import org.jfree.data.xy.XYSeriesCollection;
 
 import java.io.File;
 import java.io.IOException;
@@ -157,37 +162,46 @@ public class CasePredictor {
             SequenceRecordReader trainingReader = new CSVSequenceRecordReader(1);
             trainingReader.initialize(new FileSplit(new File((inCountyMode ? countiesDirTrain.getPath() : statesDirTrain.getPath()) + "/")));
             SequenceRecordReader testingReader = new CSVSequenceRecordReader(1);
-            trainingReader.initialize(new FileSplit(new File((inCountyMode ? countiesDirTest.getPath() : statesDirTest.getPath()) + "/")));
+            testingReader.initialize(new FileSplit(new File((inCountyMode ? countiesDirTest.getPath() : statesDirTest.getPath()) + "/")));
 
-            DataSetIterator trainingData = new SequenceRecordReaderDataSetIterator(trainingReader, batchSize, numOutputs, labelIndex, true);
-            DataSetIterator testingData = new SequenceRecordReaderDataSetIterator(testingReader, batchSize, numOutputs, labelIndex, true);
+            DataSetIterator trainingIter = new SequenceRecordReaderDataSetIterator(trainingReader, batchSize, -1, labelIndex, true);
+            DataSetIterator testingIter = new SequenceRecordReaderDataSetIterator(testingReader, batchSize, -1, labelIndex, true);
+
+            // Create data set
+            DataSet trainingData = trainingIter.next();
+            DataSet testingData = testingIter.next();
+
+            //Normalize data, including labels (fitLabel=true)
+            NormalizerMinMaxScaler normalizer = new NormalizerMinMaxScaler(0, 1);
+            normalizer.fitLabel(true);
+            normalizer.fit(trainingData);              //Collect training data statistics
+
+            normalizer.transform(trainingData);
+            normalizer.transform(testingData);
 
             // configure the neural network
             final int numHiddenNodes = 50;
             MultiLayerConfiguration conf = new NeuralNetConfiguration.Builder()
-                    .seed(seed)
+                    .seed(140)
+                    .optimizationAlgo(OptimizationAlgorithm.STOCHASTIC_GRADIENT_DESCENT)
                     .weightInit(WeightInit.XAVIER)
-                    .updater(new Nesterovs(learningRate, 0.9))
                     .list()
-                    .layer(new DenseLayer.Builder().nIn(numInputs).nOut(numHiddenNodes)
-                            .activation(Activation.TANH).build())
-                    .layer(new DenseLayer.Builder().nIn(numHiddenNodes).nOut(numHiddenNodes)
-                            .activation(Activation.TANH).build())
-                    .layer(new RnnOutputLayer.Builder().name("output")
-                            .activation(Activation.TANH).nIn(numHiddenNodes).nOut(numOutputs)
-                            .lossFunction(LossFunctions.LossFunction.MSE).build())
-                            .build();
+                    .layer(0, new DenseLayer.Builder().activation(Activation.TANH).nIn(numInputs).nOut(numHiddenNodes)
+                            .build())
+                    .layer(1, new RnnOutputLayer.Builder(LossFunctions.LossFunction.MSE)
+                            .activation(Activation.IDENTITY).nIn(numHiddenNodes).nOut(numOutputs).build())
+                    .build();
 
             // run the appropriate model
             if (inCountyMode) {
                 cModel = new MultiLayerNetwork(conf);
                 cModelFile = new File(DATA_PATH, "countyModel.json");
-                runModel(cModel, cModelFile, testingData, trainingData);
+                runModel(cModel, cModelFile, testingData, trainingData, normalizer);
 
             } else {
                 sModel = new MultiLayerNetwork(conf);
                 sModelFile = new File(DATA_PATH, "stateModel.json");
-                runModel(sModel, sModelFile, testingData, trainingData);
+                runModel(sModel, sModelFile, testingData, trainingData, normalizer);
             }
 
         } catch (Exception e) {
@@ -209,41 +223,58 @@ public class CasePredictor {
         });
     }
 
-    private static void runModel(MultiLayerNetwork model, File modelFile, DataSetIterator testingData, DataSetIterator trainingData) {
-        try {
-            // initialize model
-            model.init();
+    private static void runModel(MultiLayerNetwork model, File modelFile, DataSet testingData, DataSet trainingData, NormalizerMinMaxScaler normalizer) {
+        // initialize model
+        model.init();
 
-            // connect to ui
-            model.setListeners(new StatsListener(statsStorage), new ScoreIterationListener(10));
+        // connect to ui
+        model.setListeners(new StatsListener(statsStorage), new ScoreIterationListener(10));
 
-            // train the model
-            int numEpochs = 15;
-            model.fit(trainingData, numEpochs);
+        // train the model
+        int numEpochs = 15;
+        for (int i = 0; i < numEpochs; i++) {
+            model.fit(trainingData);
+            System.out.println("Epoch " + i + " complete. Time series evaluation:");
 
-            // save model to disk
-            model.save(modelFile, true);
+            // run regression evaluation on our single column input
+            RegressionEvaluation evaluation = new RegressionEvaluation(1);
+            INDArray features = testingData.getFeatures();
 
-            // test the model
-            System.out.println("cases: \t\tpredicted:");
-            RegressionEvaluation eval = new RegressionEvaluation(1);
-            while (testingData.hasNext()) {
-                DataSet row = testingData.next();
-                INDArray features = row.getFeatures();
-                INDArray cases = row.getLabels();
+            INDArray labels = testingData.getLabels();
+            INDArray predicted = model.output(features, false);
 
-                List<INDArray> predicted = model.feedForward(features);
+            evaluation.evalTimeSeries(labels, predicted);
 
-                for (INDArray prediction :
-                        predicted) {
-                    System.out.println(cases.getInt(0) + "\t\t\t" + prediction.getInt(0));
-                    eval.eval(cases, prediction);
-                }
-            }
-            System.out.println(eval.stats());
-        } catch (IOException e) {
-            e.printStackTrace();
+            //Just do sout here since the logger will shift the shift the columns of the stats
+            System.out.println(evaluation.stats());
         }
+
+        // init rrnTimeStep with train data and predict test data
+        model.rnnTimeStep(trainingData.getFeatures());
+        INDArray predicted = model.rnnTimeStep(testingData.getFeatures());
+
+        // revert data back to original values for plotting
+        normalizer.revert(trainingData);
+        normalizer.revert(testingData);
+        normalizer.revertLabels(predicted);
+
+        //Create plot with out data
+        XYSeriesCollection c = new XYSeriesCollection();
+        createSeries(c, trainingData.getFeatures(), 0, "Train data");
+        createSeries(c, testingData.getFeatures(), 99, "Actual test data");
+        createSeries(c, predicted, 100, "Predicted test data");
+    }
+
+    private static XYSeriesCollection createSeries(XYSeriesCollection seriesCollection, INDArray data, int offset, String name) {
+        int nRows = (int) data.shape()[2];
+        XYSeries series = new XYSeries(name);
+        for (int i = 0; i < nRows; i++) {
+            series.add(i + offset, data.getDouble(i));
+        }
+
+        seriesCollection.addSeries(series);
+
+        return seriesCollection;
     }
 
     private static void run() {
