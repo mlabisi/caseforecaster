@@ -27,10 +27,7 @@ import org.deeplearning4j.nn.api.OptimizationAlgorithm;
 import org.deeplearning4j.nn.conf.MultiLayerConfiguration;
 import org.deeplearning4j.nn.conf.NeuralNetConfiguration;
 import org.deeplearning4j.nn.conf.Updater;
-import org.deeplearning4j.nn.conf.layers.DenseLayer;
-import org.deeplearning4j.nn.conf.layers.GravesLSTM;
-import org.deeplearning4j.nn.conf.layers.OutputLayer;
-import org.deeplearning4j.nn.conf.layers.RnnOutputLayer;
+import org.deeplearning4j.nn.conf.layers.*;
 import org.deeplearning4j.nn.multilayer.MultiLayerNetwork;
 import org.deeplearning4j.nn.weights.WeightInit;
 import org.deeplearning4j.optimize.listeners.ScoreIterationListener;
@@ -174,7 +171,7 @@ public class CasePredictor {
             //Normalize data, including labels (fitLabel=true)
             NormalizerMinMaxScaler normalizer = new NormalizerMinMaxScaler(0, 1);
             normalizer.fitLabel(true);
-            normalizer.fit(trainingData);              //Collect training data statistics
+            normalizer.fit(trainingData); //Collect training data statistics
 
             normalizer.transform(trainingData);
             normalizer.transform(testingData);
@@ -182,13 +179,13 @@ public class CasePredictor {
             // configure the neural network
             final int numHiddenNodes = 50;
             MultiLayerConfiguration conf = new NeuralNetConfiguration.Builder()
-                    .seed(140)
+                    .seed(seed)
                     .optimizationAlgo(OptimizationAlgorithm.STOCHASTIC_GRADIENT_DESCENT)
                     .weightInit(WeightInit.XAVIER)
                     .list()
-                    .layer(0, new DenseLayer.Builder().activation(Activation.TANH).nIn(numInputs).nOut(numHiddenNodes)
-                            .build())
-                    .layer(1, new RnnOutputLayer.Builder(LossFunctions.LossFunction.MSE)
+                    .layer(0, new LSTM.Builder().activation(Activation.TANH).nIn(numInputs).nOut(numHiddenNodes).build())
+                    .layer(1, new DenseLayer.Builder().nIn(numHiddenNodes).nOut(numHiddenNodes).weightInit(WeightInit.XAVIER).activation(Activation.RELU).build()) //Configuring Layers
+                    .layer(2, new RnnOutputLayer.Builder(LossFunctions.LossFunction.MSE)
                             .activation(Activation.IDENTITY).nIn(numHiddenNodes).nOut(numOutputs).build())
                     .build();
 
@@ -236,16 +233,16 @@ public class CasePredictor {
             model.fit(trainingData);
             System.out.println("Epoch " + i + " complete. Time series evaluation:");
 
-            // run regression evaluation on our single column input
             RegressionEvaluation evaluation = new RegressionEvaluation(1);
             INDArray features = testingData.getFeatures();
-
             INDArray labels = testingData.getLabels();
+
             INDArray predicted = model.output(features, false);
 
-            evaluation.evalTimeSeries(labels, predicted);
+//            System.out.println("PREDICTED\n" + predicted);
+//            System.out.println("ACTUAL\n" + labels);
 
-            //Just do sout here since the logger will shift the shift the columns of the stats
+            evaluation.evalTimeSeries(labels, predicted);
             System.out.println(evaluation.stats());
         }
 
