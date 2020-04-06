@@ -21,12 +21,9 @@ import org.deeplearning4j.api.storage.StatsStorage;
 import org.deeplearning4j.datasets.datavec.SequenceRecordReaderDataSetIterator;
 import org.deeplearning4j.nn.api.OptimizationAlgorithm;
 import org.deeplearning4j.nn.conf.ComputationGraphConfiguration;
-import org.deeplearning4j.nn.conf.MultiLayerConfiguration;
 import org.deeplearning4j.nn.conf.NeuralNetConfiguration;
 import org.deeplearning4j.nn.conf.layers.*;
 import org.deeplearning4j.nn.graph.ComputationGraph;
-import org.deeplearning4j.nn.multilayer.MultiLayerNetwork;
-import org.deeplearning4j.nn.weights.WeightInit;
 import org.deeplearning4j.optimize.listeners.ScoreIterationListener;
 import org.deeplearning4j.ui.stats.StatsListener;
 import org.deeplearning4j.ui.storage.FileStatsStorage;
@@ -35,12 +32,13 @@ import org.nd4j.linalg.activations.Activation;
 import org.nd4j.linalg.api.ndarray.INDArray;
 import org.nd4j.linalg.dataset.DataSet;
 import org.nd4j.linalg.dataset.api.iterator.DataSetIterator;
-import org.nd4j.linalg.learning.config.Nesterovs;
+import org.nd4j.linalg.dataset.api.preprocessor.NormalizerStandardize;
 import org.nd4j.linalg.lossfunctions.LossFunctions;
 
 import java.io.File;
 import java.net.URL;
 import java.util.*;
+import java.util.stream.Collectors;
 
 import static org.joda.time.DateTimeZone.*;
 
@@ -49,11 +47,9 @@ public class CasePredictor {
     private static Multimap<Integer, List<Writable>> trainToWrite = ArrayListMultimap.create();
     private static Multimap<Integer, List<Writable>> testToWrite = ArrayListMultimap.create();
 
-//    private static ComputationGraph cModel;
-    private static MultiLayerNetwork cModel;
+    private static ComputationGraph cModel;
     private static File cModelFile;
-//    private static ComputationGraph sModel;
-    private static MultiLayerNetwork sModel;
+    private static ComputationGraph sModel;
     private static File sModelFile;
 
     private static final String COUNTRIES_URL = "https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv";
@@ -102,18 +98,10 @@ public class CasePredictor {
                     .addColumnsInteger("fips", "cases", "deaths")
                     .build();
 
-            // clean the data
-            TransformProcess pre = new TransformProcess.Builder(csvSchema)
-                    .removeAllColumnsExceptFor("date", "fips", "cases")
-                    .stringToTimeTransform("date", "YYYY-MM-DD", UTC)
-                    .filter(new ConditionFilter(new CategoricalColumnCondition("fips", ConditionOp.Equal, "")))
-                    .build();
-
 
             // grab the data from the original csv file
-            RecordReader recordReader = new CSVRecordReader(1); // might need to use a sequential record reader
-            TransformProcessRecordReader processedRecordReader = new TransformProcessRecordReader(recordReader, pre);
-            processedRecordReader.initialize(new FileSplit(infile));
+            RecordReader recordReader = new CSVRecordReader(1);
+            recordReader.initialize(new FileSplit(infile));
 
             // process the original data and build location to fips map
             // grab total number of rows to calculate training-testing split
@@ -124,11 +112,21 @@ public class CasePredictor {
                     String location = (inCountyMode ? row.get(1) + ", " + row.get(2) : row.get(1)).toString();
                     int fips = (inCountyMode ? row.get(3) : row.get(2)).toInt();
                     locationToFIPS.put(location, fips);
+                    setSize++;
                 }
-                setSize++;
             }
             recordReader.reset();
 
+            // clean the data
+            TransformProcess pre = new TransformProcess.Builder(csvSchema)
+                    .removeAllColumnsExceptFor("date", "fips", "cases")
+                    .stringToTimeTransform("date", "YYYY-MM-DD", UTC)
+                    .filter(new ConditionFilter(new CategoricalColumnCondition("fips", ConditionOp.Equal, "")))
+                    .integerToCategorical("fips", locationToFIPS.entrySet()
+                            .stream().collect(Collectors.toMap(Map.Entry::getValue, Map.Entry::getKey))).categoricalToInteger("fips")
+                    .build();
+            TransformProcessRecordReader processedRecordReader = new TransformProcessRecordReader(recordReader, pre);
+            processedRecordReader.initialize(new FileSplit(infile));
 
             // prepare the output files for the clean data
             RecordWriter trainingWriter = new CSVRecordWriter();
@@ -148,8 +146,8 @@ public class CasePredictor {
                 }
             }
 
-            collectRows(inCountyMode, trainingWriter, trainToWrite, countiesDirTrain, statesDirTrain);
-            collectRows(inCountyMode, testingWriter, testToWrite, countiesDirTest, statesDirTest);
+            collectRows(trainingWriter, trainToWrite, (inCountyMode ? countiesDirTrain.getPath() : statesDirTrain.getPath()) + "/");
+            collectRows(testingWriter, testToWrite, (inCountyMode ? countiesDirTest.getPath() : statesDirTest.getPath()) + "/");
 
             // save clean data as ml data sets
             SequenceRecordReader trainingReader = new CSVSequenceRecordReader(1);
@@ -160,51 +158,36 @@ public class CasePredictor {
             DataSetIterator trainingData = new SequenceRecordReaderDataSetIterator(trainingReader, batchSize, -1, labelIndex, true);
             DataSetIterator testingData = new SequenceRecordReaderDataSetIterator(testingReader, batchSize, -1, labelIndex, true);
 
-//            // Create data set
-//            DataSet nTrainingData = trainingData.next();
-//            DataSet nTestingData = testingData.next();
-//
-//            //Normalize data, including labels (fitLabel=true)
-//            NormalizerStandardize normalizer = new NormalizerStandardize();
+            //Normalize data, including labels (fitLabel=true)
+            NormalizerStandardize normalizer = new NormalizerStandardize();
 //            normalizer.fitLabel(true);
-//            normalizer.fit(trainingData); //Collect training data statistics
-//
-//            normalizer.transform(nTrainingData);
-//            normalizer.transform(nTestingData);
+            normalizer.fit(trainingData); //Collect training data statistics
+            trainingData.reset();
+            trainingData.setPreProcessor(normalizer);
+            testingData.setPreProcessor(normalizer);
 
             // configure the neural network
             final int numHiddenNodes = 50;
-//            ComputationGraphConfiguration conf = new NeuralNetConfiguration.Builder()
-//                    .seed(seed)
-//                    .updater(new Nesterovs(0.1, 0.9)) //High Level Configuration
-//                    .graphBuilder()  //For configuring ComputationGraph we call the graphBuilder method
-//                    .addInputs("input") //Configuring Layers
-//                    .addLayer("L1", new LSTM.Builder().activation(Activation.TANH).nIn(numInputs).nOut(numHiddenNodes).build(), "input")
-//                    .addLayer("out1", new RnnOutputLayer.Builder(LossFunctions.LossFunction.MSE)
-//                            .activation(Activation.IDENTITY).nIn(numHiddenNodes).nOut(numOutputs).build(), "L1")
-//                    .setOutputs("out1")
-//                    .build();
-            MultiLayerConfiguration conf = new NeuralNetConfiguration.Builder()
+            ComputationGraphConfiguration conf = new NeuralNetConfiguration.Builder()
                     .seed(seed)
                     .optimizationAlgo(OptimizationAlgorithm.STOCHASTIC_GRADIENT_DESCENT)
-                    .weightInit(WeightInit.XAVIER)
-                    .list()
-                    .layer(0, new LSTM.Builder().activation(Activation.TANH).nIn(numInputs).nOut(numHiddenNodes).build())
-                    .layer(1, new DenseLayer.Builder().nIn(numHiddenNodes).nOut(numHiddenNodes).weightInit(WeightInit.XAVIER).activation(Activation.RELU).build()) //Configuring Layers
-                    .layer(2, new RnnOutputLayer.Builder(LossFunctions.LossFunction.MSE)
-                            .activation(Activation.IDENTITY).nIn(numHiddenNodes).nOut(numOutputs).build())
+                    .graphBuilder()
+                    .addInputs("trainFeatures")
+                    .setOutputs("predictCaseCt")
+                    .addLayer("L1", new LSTM.Builder().nIn(numInputs).nOut(numHiddenNodes)
+                            .activation(Activation.HARDTANH).build(), "trainFeatures")
+                    .addLayer("predictCaseCt", new RnnOutputLayer.Builder(LossFunctions.LossFunction.MSE)
+                            .activation(Activation.IDENTITY).nIn(numHiddenNodes).nOut(numOutputs).build(), "L1")
                     .build();
 
             // run the appropriate model
             if (inCountyMode) {
-//                cModel = new ComputationGraph(conf);
-                cModel = new MultiLayerNetwork(conf);
+                cModel = new ComputationGraph(conf);
                 cModelFile = new File(DATA_PATH, "countyModel.json");
                 runModel(cModel, testingData, trainingData);
 
             } else {
-//                sModel = new ComputationGraph(conf);
-                sModel = new MultiLayerNetwork(conf);
+                sModel = new ComputationGraph(conf);
                 sModelFile = new File(DATA_PATH, "stateModel.json");
                 runModel(sModel, testingData, trainingData);
             }
@@ -216,22 +199,22 @@ public class CasePredictor {
         }
     }
 
-    private static void collectRows(boolean inCountyMode, RecordWriter testingWriter, Multimap<Integer, List<Writable>> testToWrite, File countiesDirTest, File statesDirTest) {
-        testToWrite.asMap().forEach((fips, rows) -> {
+    private static void collectRows(RecordWriter writer, Multimap<Integer, List<Writable>> toWrite, String dir) {
+        toWrite.asMap().forEach((fips, rows) -> {
             try {
-                File out = new File((inCountyMode ? countiesDirTest.getPath() : statesDirTest.getPath()) + "/" + fips + ".csv");
+                File out = new File(dir + fips + ".csv");
                 out.createNewFile();
-                testingWriter.initialize(new FileSplit(out), new NumberOfRecordsPartitioner());
-                testingWriter.writeBatch(new ArrayList<>(rows));
-                testingWriter.close();
+                writer.initialize(new FileSplit(out), new NumberOfRecordsPartitioner());
+                writer.writeBatch(new ArrayList<>(rows));
+                writer.close();
             } catch (Exception e) {
                 e.printStackTrace();
             }
         });
     }
 
-//    private static void runModel(ComputationGraph model, DataSetIterator testingData, DataSetIterator trainingData) {
-    private static void runModel(MultiLayerNetwork model, DataSetIterator testingData, DataSetIterator trainingData) {
+    //    private static void runModel(ComputationGraph model, DataSetIterator testingData, DataSetIterator trainingData) {
+    private static void runModel(ComputationGraph model, DataSetIterator testingData, DataSetIterator trainingData) {
         // initialize model
         model.init();
 
@@ -239,18 +222,19 @@ public class CasePredictor {
         model.setListeners(new StatsListener(statsStorage), new ScoreIterationListener(10));
 
         // train the model
-        int numEpochs = 15;
-//        model.fit(trainingData, numEpochs);
-        model.output(trainingData, true);
+        int numEpochs = 1;
+        model.fit(trainingData, numEpochs);
 
         // test the model
         ROC roc = new ROC(100);
-        while (testingData.hasNext()){
+        while (testingData.hasNext()) {
             DataSet batch = testingData.next();
-//            INDArray[] out = model.output(batch.getFeatures());
-//            roc.evalTimeSeries(batch.getLabels(), out[0]);
-            INDArray out = model.output(batch.getFeatures());
-            roc.evalTimeSeries(batch.getLabels(), out);
+            INDArray[] out = model.output(batch.getFeatures());
+            roc.evalTimeSeries(batch.getLabels(), out[0]);
+
+            System.out.println("ACT: " + batch.getLabels());
+            System.out.println("PRE: " + out[0]);
+            System.out.println("\n");
         }
         System.out.println("FINAL TEST AUC: " + roc.calculateAUC());
     }
