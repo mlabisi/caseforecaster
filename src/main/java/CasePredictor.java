@@ -32,6 +32,8 @@ import org.nd4j.linalg.activations.Activation;
 import org.nd4j.linalg.api.ndarray.INDArray;
 import org.nd4j.linalg.dataset.DataSet;
 import org.nd4j.linalg.dataset.api.iterator.DataSetIterator;
+import org.nd4j.linalg.dataset.api.preprocessor.DataNormalization;
+import org.nd4j.linalg.dataset.api.preprocessor.NormalizerMinMaxScaler;
 import org.nd4j.linalg.dataset.api.preprocessor.NormalizerStandardize;
 import org.nd4j.linalg.lossfunctions.LossFunctions;
 
@@ -158,9 +160,8 @@ public class CasePredictor {
             DataSetIterator trainingData = new SequenceRecordReaderDataSetIterator(trainingReader, batchSize, -1, labelIndex, true);
             DataSetIterator testingData = new SequenceRecordReaderDataSetIterator(testingReader, batchSize, -1, labelIndex, true);
 
-            //Normalize data, including labels (fitLabel=true)
-            NormalizerStandardize normalizer = new NormalizerStandardize();
-//            normalizer.fitLabel(true);
+            // Normalize data, including labels (fitLabel=true)
+            DataNormalization normalizer = new NormalizerMinMaxScaler(0, .8);
             normalizer.fit(trainingData); //Collect training data statistics
             trainingData.reset();
             trainingData.setPreProcessor(normalizer);
@@ -175,7 +176,7 @@ public class CasePredictor {
                     .addInputs("trainFeatures")
                     .setOutputs("predictCaseCt")
                     .addLayer("L1", new LSTM.Builder().nIn(numInputs).nOut(numHiddenNodes)
-                            .activation(Activation.HARDTANH).build(), "trainFeatures")
+                            .activation(Activation.TANH).build(), "trainFeatures")
                     .addLayer("predictCaseCt", new RnnOutputLayer.Builder(LossFunctions.LossFunction.MSE)
                             .activation(Activation.IDENTITY).nIn(numHiddenNodes).nOut(numOutputs).build(), "L1")
                     .build();
@@ -222,8 +223,7 @@ public class CasePredictor {
         model.setListeners(new StatsListener(statsStorage), new ScoreIterationListener(10));
 
         // train the model
-        int numEpochs = 1;
-        model.fit(trainingData, numEpochs);
+        model.fit(trainingData);
 
         // test the model
         ROC roc = new ROC(100);
