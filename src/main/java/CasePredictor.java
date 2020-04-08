@@ -92,7 +92,7 @@ public class CasePredictor implements LearningEventListener {
             TransformProcess tp = new TransformProcess.Builder(csvSchema)
                     .removeAllColumnsExceptFor("date", "fips", "cases")
                     .stringToTimeTransform("date", "YYYY-MM-DD", UTC)
-                    .timeMathOp("date", MathOp.Add, (long)1.5795648e12 , TimeUnit.SECONDS)
+                    .timeMathOp("date", MathOp.Subtract, (long)1.5795648e12, TimeUnit.MILLISECONDS)
                     .filter(new ConditionFilter(new CategoricalColumnCondition("fips", ConditionOp.Equal, "")))
                     .build();
             TransformProcessRecordReader processedRecordReader = new TransformProcessRecordReader(recordReader, tp);
