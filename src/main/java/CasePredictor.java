@@ -7,6 +7,7 @@ import org.datavec.api.records.writer.RecordWriter;
 import org.datavec.api.records.writer.impl.csv.CSVRecordWriter;
 import org.datavec.api.split.FileSplit;
 import org.datavec.api.split.partition.NumberOfRecordsPartitioner;
+import org.datavec.api.transform.MathOp;
 import org.datavec.api.transform.TransformProcess;
 import org.datavec.api.transform.condition.ConditionOp;
 import org.datavec.api.transform.condition.column.CategoricalColumnCondition;
@@ -15,9 +16,16 @@ import org.datavec.api.transform.schema.Schema;
 import org.datavec.api.writable.Writable;
 import org.neuroph.core.data.DataSet;
 import org.neuroph.core.data.DataSetRow;
+import org.neuroph.core.events.LearningEvent;
+import org.neuroph.core.events.LearningEventListener;
+import org.neuroph.core.learning.error.MeanAbsoluteError;
+import org.neuroph.core.learning.error.MeanSquaredError;
 import org.neuroph.nnet.MultiLayerPerceptron;
-import org.neuroph.nnet.learning.BackPropagation;
+import org.neuroph.nnet.learning.MomentumBackpropagation;
 import org.neuroph.util.DataSetColumnType;
+import org.neuroph.util.TransferFunctionType;
+import org.neuroph.util.data.norm.Normalizer;
+import org.neuroph.util.data.norm.RangeNormalizer;
 
 import java.io.File;
 import java.net.URL;
@@ -25,10 +33,11 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 import static org.joda.time.DateTimeZone.UTC;
 
-public class CasePredictor {
+public class CasePredictor implements LearningEventListener {
 
     private static final String COUNTRIES_URL = "https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv";
     private static final String STATES_URL = "https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-states.csv";
@@ -43,7 +52,7 @@ public class CasePredictor {
     private static Map<String, Integer> locationToFIPS = new HashMap<>();
     private static File dir = new File(DATA_PATH);
 
-    private static void runModel(String filename, String url) {
+    private void runModel(String filename, String url) {
         boolean inCountyMode = filename.contains("counties");
         try {
             dir.mkdir();
@@ -83,6 +92,7 @@ public class CasePredictor {
             TransformProcess tp = new TransformProcess.Builder(csvSchema)
                     .removeAllColumnsExceptFor("date", "fips", "cases")
                     .stringToTimeTransform("date", "YYYY-MM-DD", UTC)
+                    .timeMathOp("date", MathOp.Add, (long)1.5795648e12 , TimeUnit.SECONDS)
                     .filter(new ConditionFilter(new CategoricalColumnCondition("fips", ConditionOp.Equal, "")))
                     .build();
             TransformProcessRecordReader processedRecordReader = new TransformProcessRecordReader(recordReader, tp);
@@ -110,36 +120,58 @@ public class CasePredictor {
             DataSet trainingData = ttSplit[0];
             DataSet testingData = ttSplit[1];
 
+            // normalize data
+            Normalizer norm = new RangeNormalizer(0, 500);
+            norm.normalize(trainingData);
+            norm.normalize(testingData);
+
             // configure model
             int numHiddenNodes = 50;
-            int numEpochs = 10;
 
-            MultiLayerPerceptron model = new MultiLayerPerceptron(2, numHiddenNodes, 1);
-            BackPropagation backProp = new BackPropagation();
-            backProp.setLearningRate(learningRate);
-//            backProp.setMaxError(0.01);
-//            backProp.setBatchMode(true);
-            backProp.setMaxIterations(numEpochs);
+            MultiLayerPerceptron model = new MultiLayerPerceptron(
+                    TransferFunctionType.TANH,
+                    numInputs,
+                    numHiddenNodes,
+                    numHiddenNodes,
+                    numHiddenNodes,
+                    numOutputs);
+            model.setLearningRule(new MomentumBackpropagation());
+            MomentumBackpropagation learningRule = (MomentumBackpropagation) model.getLearningRule();
+            learningRule.setMaxError(10);
+            learningRule.addListener(this);
 
             // train model
-            model.learn(trainingData, backProp);
+            model.learn(trainingData);
 
             // test model
+            MeanSquaredError mse = new MeanSquaredError();
+            MeanAbsoluteError mae = new MeanAbsoluteError();
+            int lines = 0;
+
             for (DataSetRow testSetRow : testingData.getRows()) {
                 model.setInput(testSetRow.getInput());
                 model.calculate();
                 double[] prediction = model.getOutput();
+                double[] actual = testSetRow.getDesiredOutput();
 
-                System.out.print("Input: " + Arrays.toString(testSetRow.getInput()));
-                System.out.print(" \tOutput: " + Arrays.toString(prediction));
-                System.out.println(" \tActual: " + Arrays.toString(testSetRow.getDesiredOutput()));
+                mse.addPatternError(prediction, actual);
+                mae.addPatternError(prediction, actual);
+
+                if (lines++ < 5) {
+                    System.out.print("Input: " + Arrays.toString(testSetRow.getInput()));
+                    System.out.print(" \tOutput: " + Arrays.toString(prediction));
+                    System.out.println(" \tActual: " + Arrays.toString(actual));
+                }
             }
+
+            System.out.println("Mean squared error is: " + mse.getTotalError());
+            System.out.println("Mean absolute error is: " + mae.getTotalError());
         } catch (Exception e) {
             e.printStackTrace();
         }
     }
 
-    private static void run() {
+    private void run() {
         // gather data
         // prepare data
         // collect training data
@@ -154,7 +186,7 @@ public class CasePredictor {
     }
 
     public static void main(String[] args) {
-        run();
+        (new CasePredictor()).run();
 
 //        makePrediction("Snohomish, Washington", "2020-04-03");
 //        makePrediction("Los Angeles, California", "2020-04-03");
@@ -166,5 +198,11 @@ public class CasePredictor {
         }
 
         // TODO: GUI for makePrediction
+    }
+
+    @Override
+    public void handleLearningEvent(LearningEvent learningEvent) {
+        MomentumBackpropagation bp = (MomentumBackpropagation) learningEvent.getSource();
+        System.out.println(bp.getCurrentIteration() + ". iteration | Total network error: " + bp.getTotalNetworkError());
     }
 }
