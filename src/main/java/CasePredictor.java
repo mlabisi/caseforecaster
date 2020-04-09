@@ -9,28 +9,27 @@ import org.datavec.api.records.writer.RecordWriter;
 import org.datavec.api.records.writer.impl.csv.CSVRecordWriter;
 import org.datavec.api.split.FileSplit;
 import org.datavec.api.split.partition.NumberOfRecordsPartitioner;
-import org.datavec.api.transform.MathOp;
 import org.datavec.api.transform.TransformProcess;
 import org.datavec.api.transform.condition.ConditionOp;
 import org.datavec.api.transform.condition.column.CategoricalColumnCondition;
 import org.datavec.api.transform.filter.ConditionFilter;
 import org.datavec.api.transform.schema.Schema;
+import org.datavec.api.transform.transform.normalize.Normalize;
 import org.datavec.api.writable.Writable;
-import org.joda.time.DateTimeZone;
+import org.datavec.local.transforms.AnalyzeLocal;
 import org.neuroph.core.NeuralNetwork;
 import org.neuroph.core.data.DataSet;
 import org.neuroph.core.data.DataSetRow;
 import org.neuroph.core.events.LearningEvent;
 import org.neuroph.core.events.LearningEventListener;
+import org.neuroph.core.learning.SupervisedLearning;
 import org.neuroph.core.learning.error.MeanAbsoluteError;
 import org.neuroph.core.learning.error.MeanSquaredError;
 import org.neuroph.nnet.MultiLayerPerceptron;
-import org.neuroph.nnet.learning.MomentumBackpropagation;
+import org.neuroph.nnet.learning.BackPropagation;
 import org.neuroph.util.DataSetColumnType;
-import org.neuroph.util.TransferFunctionType;
 
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.net.URL;
@@ -43,14 +42,15 @@ public class CasePredictor implements LearningEventListener {
     private static final String COUNTIES_FILE = "covid_19_counties";
     private static final String STATES_FILE = "covid_19_states";
     private static final String DATA_PATH = FilenameUtils.concat(System.getProperty("user.dir") + "/src/main", "resources");
+    private static final String MODELS_PATH = DATA_PATH + "/models/";
 
-    private static final double learningRate = 0.01;
-    private static final int numInputs = 2;
+    private static final int numInputs = 1;
     private static final int numOutputs = 1;
 
     private static Map<String, Integer> locationToFIPS = new HashMap<>();
     private static Multimap<Integer, List<Writable>> toWrite = ArrayListMultimap.create();
     private static File dir = new File(DATA_PATH);
+    private static File modelsDir = new File(MODELS_PATH);
 
     public static void main(String[] args) {
         (new CasePredictor()).buildMolel();
@@ -81,14 +81,15 @@ public class CasePredictor implements LearningEventListener {
         boolean inCountyMode = location.contains(",");
         File rawInput = new File(FilenameUtils.concat(dir.getPath(), "input.csv"));
         try (FileWriter writer = new FileWriter(rawInput)) {
-            writer.write(date + "," + locationToFIPS.get(location) + ",0");
+            int fips = locationToFIPS.get(location);
+            writer.write(fips + ",0");
             File cleanInput = cleanData(rawInput, inCountyMode);
             DataSet input = DataSet.createFromFile(cleanInput.getPath(), numInputs, numOutputs, ",");
             input.setColumnNames(new String[]{"date", "fips", "cases"});
-            input.setColumnType(1, DataSetColumnType.NOMINAL);
+            input.setColumnType(0, DataSetColumnType.NOMINAL);
             input.setLabel("cases");
 
-            NeuralNetwork model = getModel();
+            NeuralNetwork model = getModel("" + fips);
             model.setInput(input.getRowAt(0).getInput());
             model.calculate();
             double[] prediction = model.getOutput();
@@ -127,7 +128,7 @@ public class CasePredictor implements LearningEventListener {
             File cleanDir = cleanData(infile, inCountyMode, recordReader);
 
             // initiate testing and training process
-            testAndTrain(cleanDir, inCountyMode);
+            initiateTestTrain(cleanDir);
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -163,11 +164,8 @@ public class CasePredictor implements LearningEventListener {
 
             // clean the data
             TransformProcess tp = new TransformProcess.Builder(csvSchema)
-                    .removeAllColumnsExceptFor("date", "fips", "cases")
-                    .stringToTimeTransform("date", "YYYY-MM-dd", DateTimeZone.UTC)
-                    .convertToDouble("date")
-                    .doubleMathOp("date", MathOp.Subtract, 1.5795648E12)
-                    .doubleMathOp("date", MathOp.Divide, 8.64E7)
+                    .removeAllColumnsExceptFor("fips", "cases")
+                    .normalize("cases", Normalize.MinMax, AnalyzeLocal.analyze(csvSchema, recordReader))
                     .filter(new ConditionFilter(new CategoricalColumnCondition("fips", ConditionOp.Equal, "")))
                     .build();
             TransformProcessRecordReader processedRecordReader = new TransformProcessRecordReader(recordReader, tp);
@@ -182,7 +180,7 @@ public class CasePredictor implements LearningEventListener {
             // process the clean data
             while (processedRecordReader.hasNext()) {
                 List<Writable> row = processedRecordReader.next();
-                int fips = row.get(1).toInt();
+                int fips = row.get(0).toInt();
                 toWrite.put(fips, row);
             }
 
@@ -210,37 +208,31 @@ public class CasePredictor implements LearningEventListener {
         });
     }
 
-    private void testAndTrain(File cleanDir, boolean inCountyMode) {
-        // test and train for each location
+    private void initiateTestTrain(File cleanDir) {
         List<File> files = Arrays.asList(Objects.requireNonNull(cleanDir.listFiles()));
-        files.forEach((file) -> initiateTestTrain(file.getPath()));
-    }
+        files.forEach((file) -> {
+            // split data into training and testing sets
+            DataSet data = DataSet.createFromFile(file.getPath(), numInputs, numOutputs, ",", true);
+            data.setColumnNames(new String[]{"fips", "cases"});
+            data.setColumnType(1, DataSetColumnType.NOMINAL);
+            data.setLabel("cases");
 
-    private void initiateTestTrain(String cleanPath) {
-        // split data into training and testing sets
-        DataSet data = DataSet.createFromFile(cleanPath, numInputs, numOutputs, ",", true);
-        data.setColumnNames(new String[]{"date", "fips", "cases"});
-        data.setColumnType(1, DataSetColumnType.NOMINAL);
-        data.setLabel("cases");
+            DataSet[] ttSplit = data.createTrainingAndTestSubsets(0.7, 0.3);
+            DataSet trainingData = ttSplit[0];
+            DataSet testingData = ttSplit[1];
 
-        DataSet[] ttSplit = data.createTrainingAndTestSubsets(0.7, 0.3);
-        DataSet trainingData = ttSplit[0];
-        DataSet testingData = ttSplit[1];
 
-//        // normalize data
-//        Normalizer norm = new ZeroMeanNormalizer(trainingData);
-//        norm.normalize(trainingData);
-//        norm.normalize(testingData);
+            NeuralNetwork model = getModel(file.getName());
 
-        NeuralNetwork model = getModel();
+            // train model
+            model.learn(trainingData);
 
-        // train model
-        model.learn(trainingData);
-        testModel(testingData, model);
+            // test model
+            testModel(testingData, model);
+        });
     }
 
     private void testModel(DataSet testingData, NeuralNetwork model) {
-        // test model
         MeanSquaredError mse = new MeanSquaredError();
         MeanAbsoluteError mae = new MeanAbsoluteError();
         int lines = 0;
@@ -265,28 +257,29 @@ public class CasePredictor implements LearningEventListener {
         System.out.println("Mean absolute error is: " + mae.getTotalError());
     }
 
-    private NeuralNetwork getModel() {
-        NeuralNetwork model = null;
+    private NeuralNetwork getModel(String modelPath) {
+        modelPath = modelPath.contains(".csv") ? modelPath.replace(".csv", ".nnet") : modelPath + ".nnet";
+        NeuralNetwork<BackPropagation> model = null;
+        modelsDir.mkdirs();
         try {
-            File savedModel = new File(FilenameUtils.concat(dir.getPath(), "model.nnet"));
+            File savedModel = new File(FilenameUtils.concat(modelsDir.getPath(), modelPath));
             if (savedModel.createNewFile()) {
                 // configure model
-                int numHiddenNodes = 50;
-                model = new MultiLayerPerceptron(
-                        TransferFunctionType.TANH,
-                        numInputs,
-                        numHiddenNodes,
-                        numHiddenNodes,
-                        numHiddenNodes,
-                        numOutputs);
-                model.setLearningRule(new MomentumBackpropagation());
-                MomentumBackpropagation learningRule = (MomentumBackpropagation) model.getLearningRule();
-                learningRule.setMaxError(.01);
+                int numHiddenNodes = 2 * numInputs + 1;
+                int maxIterations = 1000;
+                double learningRate = 0.5;
+                double maxError = 0.00001;
+                model = new MultiLayerPerceptron(numInputs, numHiddenNodes, numOutputs);
+
+                SupervisedLearning learningRule = model.getLearningRule();
+                learningRule.setMaxError(maxError);
+                learningRule.setLearningRate(learningRate);
+                learningRule.setMaxIterations(maxIterations);
                 learningRule.addListener(this);
 
-                model.save(FilenameUtils.concat(dir.getPath(), "model.nnet"));
+                model.save(FilenameUtils.concat(modelsDir.getPath(), modelPath));
             } else {
-                model = NeuralNetwork.load(new FileInputStream(savedModel));
+                return NeuralNetwork.createFromFile(savedModel);
             }
         } catch (IOException e) {
             e.printStackTrace();
@@ -297,7 +290,8 @@ public class CasePredictor implements LearningEventListener {
 
     @Override
     public void handleLearningEvent(LearningEvent learningEvent) {
-        MomentumBackpropagation bp = (MomentumBackpropagation) learningEvent.getSource();
-        System.out.println(bp.getCurrentIteration() + ". iteration | Total network error: " + bp.getTotalNetworkError());
+        SupervisedLearning rule = (SupervisedLearning) learningEvent.getSource();
+        System.out.println("Network error for interaction " + rule.getCurrentIteration() + ": "
+                + rule.getTotalNetworkError());
     }
 }
