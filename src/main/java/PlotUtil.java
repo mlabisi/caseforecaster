@@ -35,13 +35,13 @@ public class PlotUtil {
         // X-axis
         final NumberAxis domainAxis = (NumberAxis) xyPlot.getDomainAxis();
         domainAxis.setRange((int) index[0], (int) (index[index.length - 1] + 2));
-        domainAxis.setTickUnit(new NumberTickUnit(20));
+        domainAxis.setTickUnit(new NumberTickUnit(1));
         domainAxis.setVerticalTickLabels(true);
 
         // Y-axis
         final NumberAxis rangeAxis = (NumberAxis) xyPlot.getRangeAxis();
-        rangeAxis.setRange(0, 5000);
-        rangeAxis.setTickUnit(new NumberTickUnit(50));
+        rangeAxis.setRange(0, 10000);
+        rangeAxis.setTickUnit(new NumberTickUnit(1000));
 
         final ChartPanel panel = new ChartPanel(chart);
         final JFrame f = new JFrame();

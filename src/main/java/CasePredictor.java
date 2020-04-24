@@ -41,6 +41,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 public class CasePredictor {
     private static final String COUNTRIES_URL = "https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv";
@@ -51,7 +52,7 @@ public class CasePredictor {
 
     private static Map<String, Integer> locationToFIPS = new HashMap<>();
     private static List<List<Writable>> toWrite = new ArrayList<>();
-    private static File dir = new File(DATA_PATH);
+    private static File rscDir = new File(DATA_PATH);
 
     public static void main(String[] args) {
         (new CasePredictor()).buildMolel();
@@ -70,7 +71,7 @@ public class CasePredictor {
 
     private void buildMolel() {
         // train and test the model using county data
-        buildModel(COUNTIES_FILE, COUNTRIES_URL);
+//        buildModel(COUNTIES_FILE, COUNTRIES_URL);
         // train and test the model using state data
         buildModel(STATES_FILE, STATES_URL);
     }
@@ -104,10 +105,10 @@ public class CasePredictor {
     private void buildModel(String filename, String url) {
         boolean inCountyMode = filename.contains("counties");
         try {
-            dir.mkdir();
+            rscDir.mkdir();
 
             // store fresh copy of dataset in our cache
-            File infile = new File(FilenameUtils.concat(dir.getPath(), filename + ".csv"));
+            File infile = new File(FilenameUtils.concat(rscDir.getPath(), filename + ".csv"));
             FileUtils.copyURLToFile(new URL(url), infile);
 
             // grab the data from the original csv file
@@ -167,16 +168,18 @@ public class CasePredictor {
             TransformProcess tp = new TransformProcess.Builder(csvSchema)
                     .removeAllColumnsExceptFor("date", "fips", "cases")
                     .stringToTimeTransform("date", "YYYY-MM-dd", DateTimeZone.UTC)
+                    .filter(new ConditionFilter(new CategoricalColumnCondition("fips", ConditionOp.NotEqual, "53")))
+                    .integerToCategorical("fips", locationToFIPS.entrySet().stream().collect(Collectors.toMap(Map.Entry::getValue, Map.Entry::getKey)))
+                    .categoricalToInteger("fips")
                     .transform(new DeriveColumnsFromTimeTransform.Builder("date").addIntegerDerivedColumn("DayOfYear", DateTimeFieldType.dayOfYear()).build())
                     .removeColumns("date")
                     .renameColumn("DayOfYear", "dateNum")
-                    .filter(new ConditionFilter(new CategoricalColumnCondition("fips", ConditionOp.Equal, "")))
                     .build();
             TransformProcessRecordReader processedRecordReader = new TransformProcessRecordReader(recordReader, tp);
             processedRecordReader.initialize(new FileSplit(infile));
 
             // prepare the output files for the clean data
-            String cleanDirPath = FilenameUtils.concat(dir.getPath(), "clean_" + infile.getName());
+            String cleanDirPath = FilenameUtils.concat(rscDir.getPath(), "clean_" + infile.getName());
             cleanDir = new File(cleanDirPath);
             cleanDir.createNewFile();
             RecordWriter writer = new CSVRecordWriter();
@@ -225,7 +228,7 @@ public class CasePredictor {
                 DataSet testingData = ttSplit.getTest();
 
                 // build or grab the model
-                MultiLayerNetwork model = getModel("model");
+                MultiLayerNetwork model = getModel();
 
                 // train model
                 for(int i = 0; i < 100; i++) {
@@ -234,7 +237,7 @@ public class CasePredictor {
                 }
 
                 // save model
-                ModelSerializer.writeModel(model, FilenameUtils.concat(dir.getPath(), file.getName().contains(".csv") ? file.getName().replace(".csv", ".zip") : file.getName() + ".zip"), true);
+                ModelSerializer.writeModel(model, FilenameUtils.concat(rscDir.getPath(), "model.zip"), true);
 
                 // test model
                 testModel(testingData, model);
@@ -248,7 +251,7 @@ public class CasePredictor {
         double[] actual = new double[testingData.numExamples()];
 
         for(int i = 0; i < testingData.numExamples(); i++) {
-            predicted[i] = model.rnnTimeStep(testingData.getFeatures()).getDouble(5) - i;
+            predicted[i] = model.rnnTimeStep(testingData.get(i).getFeatures()).getDouble(0);
             actual[i] = testingData.get(i).getLabels().getDouble(0);
         }
 
@@ -259,11 +262,10 @@ public class CasePredictor {
         System.out.println("done");
     }
 
-    private MultiLayerNetwork getModel(String modelPath) {
-        modelPath = modelPath.contains(".csv") ? modelPath.replace(".csv", ".zip") : modelPath + ".zip";
+    private MultiLayerNetwork getModel() {
         MultiLayerNetwork model = null;
         try {
-            File savedModel = new File(FilenameUtils.concat(dir.getPath(), modelPath));
+            File savedModel = new File(FilenameUtils.concat(rscDir.getPath(), "model.zip"));
             if (savedModel.createNewFile()) {
                 // configure model
                 int seed = 12345;
@@ -315,7 +317,7 @@ public class CasePredictor {
                 model.init();
                 model.setListeners(new ScoreIterationListener(100));
             } else {
-                model = ModelSerializer.restoreMultiLayerNetwork(FilenameUtils.concat(dir.getPath(), modelPath));
+                model = ModelSerializer.restoreMultiLayerNetwork(FilenameUtils.concat(rscDir.getPath(), "model.zip"));
             }
         } catch (IOException e) {
             e.printStackTrace();
