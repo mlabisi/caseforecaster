@@ -13,9 +13,12 @@
         <deeplearning4j.version>1.0.0-beta6</deeplearning4j.version>
         <nd4j.version>1.0.0-beta6</nd4j.version>
         <datavec.version>1.0.0-beta6</datavec.version>
+        <guava.version>15.0</guava.version>
         <datavec-spark.version>1.0.0-beta4_spark_1</datavec-spark.version>
         <jfreechart.version>1.5.0</jfreechart.version>
-        <spark.version>2.4.5</spark.version>
+        <spark.version>2.4.3</spark.version>
+        <netty.version>4.1.33.Final</netty.version>
+        <jackson.version>2.4.4</jackson.version>
     </properties>
 
     <build>
@@ -69,6 +72,26 @@
             <groupId>org.jfree</groupId>
             <artifactId>jfreechart</artifactId>
             <version>${jfreechart.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-all</artifactId>
+            <version>${netty.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-core</artifactId>
+            <version>${jackson.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>${jackson.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.google.guava</groupId>
+            <artifactId>guava</artifactId>
+            <version>${guava.version}</version>
         </dependency>
     </dependencies>
 
