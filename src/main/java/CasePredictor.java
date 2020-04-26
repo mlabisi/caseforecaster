@@ -151,8 +151,10 @@ public class CasePredictor {
     }
 
     private File cleanData(File infile, boolean inCountyMode, RecordReader recordReader) {
-        File cleanDir = null;
+        File cleanFile = null;
         try {
+            String fips = inCountyMode ? "53061" : "53";
+
             // configure csv input schema
             Schema csvSchema = inCountyMode
                     ? new Schema.Builder()
@@ -168,7 +170,7 @@ public class CasePredictor {
             TransformProcess tp = new TransformProcess.Builder(csvSchema)
                     .removeAllColumnsExceptFor("date", "fips", "cases")
                     .stringToTimeTransform("date", "YYYY-MM-dd", DateTimeZone.UTC)
-                    .filter(new ConditionFilter(new CategoricalColumnCondition("fips", ConditionOp.NotEqual, "53")))
+                    .filter(new ConditionFilter(new CategoricalColumnCondition("fips", ConditionOp.NotEqual, fips)))
                     .integerToCategorical("fips", locationToFIPS.entrySet().stream().collect(Collectors.toMap(Map.Entry::getValue, Map.Entry::getKey)))
                     .categoricalToInteger("fips")
                     .transform(new DeriveColumnsFromTimeTransform.Builder("date").addIntegerDerivedColumn("DayOfYear", DateTimeFieldType.dayOfYear()).build())
@@ -180,8 +182,8 @@ public class CasePredictor {
 
             // prepare the output files for the clean data
             String cleanDirPath = FilenameUtils.concat(rscDir.getPath(), "clean_" + infile.getName());
-            cleanDir = new File(cleanDirPath);
-            cleanDir.createNewFile();
+            cleanFile = new File(cleanDirPath);
+            cleanFile.createNewFile();
             RecordWriter writer = new CSVRecordWriter();
 
             // process the clean data
@@ -197,7 +199,7 @@ public class CasePredictor {
             e.printStackTrace();
         }
 
-        return cleanDir;
+        return cleanFile;
     }
 
     private void writeCleanData(RecordWriter writer, List<List<Writable>> toWrite, String outPath) {
@@ -231,13 +233,13 @@ public class CasePredictor {
                 MultiLayerNetwork model = getModel();
 
                 // train model
-                for(int i = 0; i < 100; i++) {
+                for(int i = 0; i < 100000; i++) {
                     model.fit(trainingData);
                     model.rnnClearPreviousState();
                 }
 
                 // save model
-                ModelSerializer.writeModel(model, FilenameUtils.concat(rscDir.getPath(), "model.zip"), true);
+//                ModelSerializer.writeModel(model, FilenameUtils.concat(rscDir.getPath(), "model.zip"), true);
 
                 // test model
                 testModel(testingData, model);
@@ -266,7 +268,7 @@ public class CasePredictor {
         MultiLayerNetwork model = null;
         try {
             File savedModel = new File(FilenameUtils.concat(rscDir.getPath(), "model.zip"));
-            if (savedModel.createNewFile()) {
+            if (!savedModel.exists()) {
                 // configure model
                 int seed = 12345;
                 int nIn = 2;
@@ -281,7 +283,7 @@ public class CasePredictor {
                         .seed(seed)
                         .optimizationAlgo(OptimizationAlgorithm.STOCHASTIC_GRADIENT_DESCENT)
                         .weightInit(WeightInit.XAVIER)
-                        .l2(1e-4)
+                        .weightDecay(1e-4)
                         .list()
                         .layer(0, new LSTM.Builder()
                                 .nIn(nIn)
