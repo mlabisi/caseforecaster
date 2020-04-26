@@ -196,6 +196,10 @@ public class CasePredictor {
             String cleanPath = FilenameUtils.concat(rscDir.getPath(), "clean_" + infile.getName().replace(".csv", ""));
             processedData.saveAsTextFile(cleanPath);
 
+            // TODO: make each sequence the same length (https://deeplearning4j.konduit.ai/getting-started/tutorials/advanced-autoencoder#examine-sequence-lengths)
+            //       read in the sequences as TIME SERIES using EQUAL LENGTH (https://deeplearning4j.org/api/latest/org/datavec/api/records/reader/impl/csv/CSVMultiSequenceRecordReader.html)
+            //       create training and testing sets
+            //       train, test, plot
 
             TransformProcessRecordReader processedRecordReader = new TransformProcessRecordReader(recordReader, tp);
             processedRecordReader.initialize(new FileSplit(infile));
