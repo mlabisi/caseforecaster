@@ -239,7 +239,7 @@ public class CasePredictor {
                 }
 
                 // save model
-//                ModelSerializer.writeModel(model, FilenameUtils.concat(rscDir.getPath(), "model.zip"), true);
+                ModelSerializer.writeModel(model, FilenameUtils.concat(rscDir.getPath(), "model.zip"), true);
 
                 // test model
                 testModel(testingData, model);
