@@ -6,9 +6,7 @@ import org.apache.spark.api.java.JavaSparkContext;
 import org.datavec.api.records.reader.RecordReader;
 import org.datavec.api.records.reader.SequenceRecordReader;
 import org.datavec.api.records.reader.impl.csv.CSVRecordReader;
-import org.datavec.api.records.writer.RecordWriter;
 import org.datavec.api.split.FileSplit;
-import org.datavec.api.split.partition.NumberOfRecordsPartitioner;
 import org.datavec.api.transform.TransformProcess;
 import org.datavec.api.transform.condition.ConditionOp;
 import org.datavec.api.transform.condition.column.CategoricalColumnCondition;
@@ -62,11 +60,6 @@ public class CasePredictor {
     public static void main(String[] args) {
         (new CasePredictor()).buildMolel();
 
-//        makePrediction("Snohomish, Washington", "2020-04-03");
-//        makePrediction("Los Angeles, California", "2020-04-03");
-//        makePrediction("Hawaii", "2020-04-03");
-//        makePrediction("New York", "2020-04-03");
-
         while (true) {
             System.out.print("");
         }
@@ -80,32 +73,6 @@ public class CasePredictor {
         // train and test the model using state data
         buildModel(STATES_FILE, STATES_URL);
     }
-
-//    private void makePrediction(String location, String date) {
-//        // perhaps give a dropdown to select county,
-//        // and calendar excluding today and past
-//        // take in a county and a date --> predict cases);
-//        boolean inCountyMode = location.contains(",");
-//        File rawInput = new File(FilenameUtils.concat(dir.getPath(), "input.csv"));
-//        try (FileWriter writer = new FileWriter(rawInput)) {
-//            int fips = locationToFIPS.get(location);
-//            writer.write(fips + ",0");
-//            File cleanInput = cleanData(rawInput, inCountyMode);
-//            DataSet input = DataSet.createFromFile(cleanInput.getPath(), numInputs, numOutputs, ",");
-//            input.setColumnNames(new String[]{"date", "fips", "cases"});
-//            input.setColumnType(0, DataSetColumnType.NOMINAL);
-//            input.setLabel("cases");
-//
-//            MultiLayerNetwork model = getModel("" + fips);
-//            model.setInput(input.getRowAt(0).getInput());
-//            model.calculate();
-//            double[] prediction = model.getOutput();
-//            System.out.println("I predict there will be " + prediction[0] + " cases in " + location + " on " + date + ".");
-//        } catch (Exception e) {
-//            e.printStackTrace();
-//        }
-//
-//    }
 
     private void buildModel(String filename, String url) {
         boolean inCountyMode = filename.contains("counties");
@@ -133,23 +100,12 @@ public class CasePredictor {
 
             // clean the input data
             cleanData(infile, inCountyMode, recordReader);
+
+            PlotUtil.plot(predictions, actuals);
+            System.out.println("done");
         } catch (Exception e) {
             e.printStackTrace();
         }
-    }
-
-    private File cleanData(File infile, boolean inCountyMode) {
-        File cleanDir = null;
-        try {
-            // grab the data from the given csv file, assuming no header
-            RecordReader recordReader = new CSVRecordReader();
-            recordReader.initialize(new FileSplit(infile));
-            cleanData(infile, inCountyMode, recordReader);
-        } catch (InterruptedException | IOException e) {
-            e.printStackTrace();
-        }
-
-        return cleanDir;
     }
 
     private void cleanData(File infile, boolean inCountyMode, RecordReader recordReader) {
@@ -196,7 +152,6 @@ public class CasePredictor {
 
         String cleanPath = FilenameUtils.concat(rscDir.getPath(), "clean_" + infile.getName().replace(".csv", ""));
 
-        File cleanDir = new File(cleanPath);
         File trainDir = new File(FilenameUtils.concat(cleanPath, "train"));
         File testDir = new File(FilenameUtils.concat(cleanPath, "test"));
 
@@ -215,22 +170,11 @@ public class CasePredictor {
                 JavaRDD<List<List<Writable>>> training = ttSplit[0].setName("training_" + i);
                 JavaRDD<List<List<Writable>>> testing = ttSplit[1].setName("testing_" + i++);
 
-
-//            training.saveAsTextFile(FilenameUtils.concat(trainDir.getPath(), training.name()));
-//            testing.saveAsTextFile(FilenameUtils.concat(testDir.getPath(), testing.name()));
-
                 SparkStorageUtils.saveMapFileSequences(FilenameUtils.concat(trainDir.getAbsolutePath(), training.name()), training);
                 SparkStorageUtils.saveMapFileSequences(FilenameUtils.concat(testDir.getAbsolutePath(), testing.name()), testing);
 
             }
         }
-
-        // TODO: make each sequence the same length (https://deeplearning4j.konduit.ai/getting-started/tutorials/advanced-autoencoder#examine-sequence-lengths)
-        //       read in the sequences as TIME SERIES using EQUAL LENGTH (https://deeplearning4j.org/api/latest/org/datavec/api/records/reader/impl/csv/CSVMultiSequenceRecordReader.html)
-        //       create training and testing sets
-        //       train, test, plot
-
-        //
 
         // initiate testing and training process
         File[] trains = trainDir.listFiles();
@@ -242,35 +186,6 @@ public class CasePredictor {
             for (int j = 0; j < trains.length; j++) {
                 initiateTestTrain(trains[j], tests[j]);
             }
-        }
-
-        PlotUtil.plot(predictions, actuals);
-        System.out.println("done");
-//            processedRecordReader.initialize(new FileSplit(infile));
-//
-//
-//            RecordWriter writer = new CSVRecordWriter();
-//
-//            // process the clean data
-//            while (processedRecordReader.hasNext()) {
-//                List<Writable> row = processedRecordReader.next();
-//                toWrite.add(row);
-//            }
-//
-//            // write the clean data
-//            writeCleanData(writer, toWrite, cleanPath);
-//            toWrite.clear();
-    }
-
-    private void writeCleanData(RecordWriter writer, List<List<Writable>> toWrite, String outPath) {
-        try {
-            File out = new File(outPath);
-            out.createNewFile();
-            writer.initialize(new FileSplit(out), new NumberOfRecordsPartitioner());
-            writer.writeBatch(toWrite);
-            writer.close();
-        } catch (Exception e) {
-            e.printStackTrace();
         }
     }
 
@@ -286,7 +201,6 @@ public class CasePredictor {
             SequenceRecordReader testRR = new MapFileSequenceRecordReader();
             testRR.initialize(new FileSplit(trainDir));
             DataSetIterator testIter = new SequenceRecordReaderDataSetIterator(testRR, batchSize, 1, 2, true);
-
 
             // build or grab the model
             ComputationGraph model = getModel();
@@ -340,11 +254,6 @@ public class CasePredictor {
                 int seed = 12345;
                 int nIn = 2;
                 int nOut = 1;
-                int lstmLayer1Size = 256;
-                int lstmLayer2Size = 256;
-                int denseLayerSize = 32;
-                double dropoutRatio = 0.2;
-                int truncatedBPTTLength = 22;
 
                 ComputationGraphConfiguration conf = new NeuralNetConfiguration.Builder()
                         .optimizationAlgo(OptimizationAlgorithm.STOCHASTIC_GRADIENT_DESCENT)
