@@ -6,10 +6,7 @@ import org.apache.spark.api.java.JavaSparkContext;
 import org.datavec.api.records.reader.RecordReader;
 import org.datavec.api.records.reader.SequenceRecordReader;
 import org.datavec.api.records.reader.impl.csv.CSVRecordReader;
-import org.datavec.api.records.reader.impl.csv.CSVSequenceRecordReader;
-import org.datavec.api.records.reader.impl.transform.TransformProcessRecordReader;
 import org.datavec.api.records.writer.RecordWriter;
-import org.datavec.api.records.writer.impl.csv.CSVRecordWriter;
 import org.datavec.api.split.FileSplit;
 import org.datavec.api.split.partition.NumberOfRecordsPartitioner;
 import org.datavec.api.transform.TransformProcess;
@@ -20,34 +17,34 @@ import org.datavec.api.transform.schema.Schema;
 import org.datavec.api.transform.sequence.comparator.NumericalColumnComparator;
 import org.datavec.api.transform.transform.time.StringToTimeTransform;
 import org.datavec.api.writable.Writable;
+import org.datavec.hadoop.records.reader.mapfile.MapFileSequenceRecordReader;
+import org.datavec.spark.storage.SparkStorageUtils;
 import org.datavec.spark.transform.SparkTransformExecutor;
 import org.datavec.spark.transform.misc.StringToWritablesFunction;
+import org.datavec.spark.transform.misc.WritablesToStringFunction;
 import org.deeplearning4j.datasets.datavec.SequenceRecordReaderDataSetIterator;
 import org.deeplearning4j.nn.api.OptimizationAlgorithm;
-import org.deeplearning4j.nn.conf.BackpropType;
-import org.deeplearning4j.nn.conf.MultiLayerConfiguration;
+import org.deeplearning4j.nn.conf.ComputationGraphConfiguration;
+import org.deeplearning4j.nn.conf.GradientNormalization;
 import org.deeplearning4j.nn.conf.NeuralNetConfiguration;
-import org.deeplearning4j.nn.conf.layers.DenseLayer;
 import org.deeplearning4j.nn.conf.layers.LSTM;
 import org.deeplearning4j.nn.conf.layers.RnnOutputLayer;
-import org.deeplearning4j.nn.multilayer.MultiLayerNetwork;
+import org.deeplearning4j.nn.graph.ComputationGraph;
 import org.deeplearning4j.nn.weights.WeightInit;
 import org.deeplearning4j.optimize.listeners.ScoreIterationListener;
 import org.deeplearning4j.util.ModelSerializer;
 import org.joda.time.DateTimeZone;
 import org.nd4j.linalg.activations.Activation;
+import org.nd4j.linalg.api.ndarray.INDArray;
 import org.nd4j.linalg.dataset.DataSet;
-import org.nd4j.linalg.dataset.SplitTestAndTrain;
 import org.nd4j.linalg.dataset.api.iterator.DataSetIterator;
+import org.nd4j.linalg.learning.config.Adam;
 import org.nd4j.linalg.lossfunctions.LossFunctions;
 
 import java.io.File;
 import java.io.IOException;
 import java.net.URL;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 public class CasePredictor {
     private static final String COUNTRIES_URL = "https://raw.githubusercontent.com/nytimes/covid-19-data/master/us-counties.csv";
@@ -58,6 +55,8 @@ public class CasePredictor {
 
     private static Map<String, Integer> locationToFIPS = new HashMap<>();
     private static List<List<Writable>> toWrite = new ArrayList<>();
+    private static List<double[]> predictions = new ArrayList<>();
+    private static List<double[]> actuals = new ArrayList<>();
     private static File rscDir = new File(DATA_PATH);
 
     public static void main(String[] args) {
@@ -133,10 +132,7 @@ public class CasePredictor {
             recordReader.reset();
 
             // clean the input data
-            File cleanFile = cleanData(infile, inCountyMode, recordReader);
-
-            // initiate testing and training process
-            initiateTestTrain(cleanFile);
+            cleanData(infile, inCountyMode, recordReader);
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -148,7 +144,7 @@ public class CasePredictor {
             // grab the data from the given csv file, assuming no header
             RecordReader recordReader = new CSVRecordReader();
             recordReader.initialize(new FileSplit(infile));
-            cleanDir = cleanData(infile, inCountyMode, recordReader);
+            cleanData(infile, inCountyMode, recordReader);
         } catch (InterruptedException | IOException e) {
             e.printStackTrace();
         }
@@ -156,71 +152,114 @@ public class CasePredictor {
         return cleanDir;
     }
 
-    private File cleanData(File infile, boolean inCountyMode, RecordReader recordReader) {
-        File cleanFile = null;
-        try {
-            String fips = inCountyMode ? "53061" : "53";
+    private void cleanData(File infile, boolean inCountyMode, RecordReader recordReader) {
+        // configure csv input schema
+        Schema csvSchema = inCountyMode
+                ? new Schema.Builder()
+                .addColumnsString("date", "county", "state", "fips")
+                .addColumnsInteger("cases", "deaths")
+                .build()
+                : new Schema.Builder()
+                .addColumnsString("date", "state", "fips")
+                .addColumnsInteger("cases", "deaths")
+                .build();
 
-            // configure csv input schema
-            Schema csvSchema = inCountyMode
-                    ? new Schema.Builder()
-                    .addColumnsString("date", "county", "state", "fips")
-                    .addColumnsInteger("cases", "deaths")
-                    .build()
-                    : new Schema.Builder()
-                    .addColumnsString("date", "state", "fips")
-                    .addColumnsInteger("cases", "deaths")
-                    .build();
+        Schema seqSchema = new Schema.Builder()
+                .addColumnsInteger("date", "cases")
+                .addColumnsString("fips")
+                .build();
 
-            // create the transformation to be applied on raw data
-            TransformProcess tp = new TransformProcess.Builder(csvSchema)
-                    .removeAllColumnsExceptFor("date", "fips", "cases")
-                    .filter(new ConditionFilter(new CategoricalColumnCondition("fips", ConditionOp.Equal, "")))
-                    .transform(new StringToTimeTransform("date", "YYYY-MM-dd", DateTimeZone.UTC))
-                    .convertToSequence("fips", new NumericalColumnComparator("date", true))
-                    .build();
+        // create the transformation to be applied on raw data
+        TransformProcess rawToSeq = new TransformProcess.Builder(csvSchema)
+                .removeAllColumnsExceptFor("date", "fips", "cases")
+                .filter(new ConditionFilter(new CategoricalColumnCondition("fips", ConditionOp.Equal, "")))
+                .transform(new StringToTimeTransform("date", "YYYY-MM-dd", DateTimeZone.UTC))
+                .convertToSequence("fips", new NumericalColumnComparator("date", true))
+                .build();
 
-            // now read in the raw data to memory using spark
-            SparkConf conf = new SparkConf().setMaster("local[*]").setAppName("Case Predictor");
-            JavaSparkContext sc = new JavaSparkContext(conf);
-            JavaRDD<String> rawData = sc.textFile(infile.getPath()).filter(row -> !row.startsWith("date"));
+        TransformProcess seqToTS = new TransformProcess.Builder(seqSchema)
+                .convertToSequence()
+                .build();
 
-            RecordReader reader = new CSVRecordReader();
-            StringToWritablesFunction swFunc = new StringToWritablesFunction(reader);
-            JavaRDD<List<Writable>> parsed = (JavaRDD<List<Writable>>) rawData.map(swFunc);
+        // now read in the raw data to memory using spark
+        SparkConf conf = new SparkConf().setMaster("local[*]").setAppName("Case Predictor");
+        JavaSparkContext sc = new JavaSparkContext(conf);
+        JavaRDD<String> rawData = sc.textFile(infile.getPath()).filter(row -> !row.startsWith("date"));
 
-            // execute the transform
-            JavaRDD<List<List<Writable>>> processedData = SparkTransformExecutor.executeToSequence(parsed, tp);
+        // parse the raw data and convert it to record-like format
+        RecordReader reader = new CSVRecordReader();
+        StringToWritablesFunction swFunc = new StringToWritablesFunction(reader);
+        JavaRDD<List<Writable>> parsed = (JavaRDD<List<Writable>>) rawData.map(swFunc);
 
-            // save the clean data
-            String cleanPath = FilenameUtils.concat(rscDir.getPath(), "clean_" + infile.getName().replace(".csv", ""));
-            processedData.saveAsTextFile(cleanPath);
+        // execute the transform
+        JavaRDD<List<List<Writable>>> processedData = SparkTransformExecutor.executeToSequence(parsed, rawToSeq);
 
-            // TODO: make each sequence the same length (https://deeplearning4j.konduit.ai/getting-started/tutorials/advanced-autoencoder#examine-sequence-lengths)
-            //       read in the sequences as TIME SERIES using EQUAL LENGTH (https://deeplearning4j.org/api/latest/org/datavec/api/records/reader/impl/csv/CSVMultiSequenceRecordReader.html)
-            //       create training and testing sets
-            //       train, test, plot
+        String cleanPath = FilenameUtils.concat(rscDir.getPath(), "clean_" + infile.getName().replace(".csv", ""));
 
-            TransformProcessRecordReader processedRecordReader = new TransformProcessRecordReader(recordReader, tp);
-            processedRecordReader.initialize(new FileSplit(infile));
+        File cleanDir = new File(cleanPath);
+        File trainDir = new File(FilenameUtils.concat(cleanPath, "train"));
+        File testDir = new File(FilenameUtils.concat(cleanPath, "test"));
+
+        if (!trainDir.exists()) {
+
+            int i = 0;
+
+            for (List<List<Writable>> seq : processedData.collect()) {
+                JavaRDD<List<Writable>> rddSeq = (JavaRDD<List<Writable>>) sc.parallelize(seq);
+                WritablesToStringFunction wsFunc = new WritablesToStringFunction(",");
+                JavaRDD<String> seqString = (JavaRDD<String>) rddSeq.map(wsFunc);
+                parsed = (JavaRDD<List<Writable>>) seqString.map(swFunc);
+
+                JavaRDD<List<List<Writable>>> processedSeq = SparkTransformExecutor.executeToSequence(parsed, seqToTS);
+                JavaRDD<List<List<Writable>>>[] ttSplit = processedSeq.randomSplit(new double[]{0.7, 0.3});
+                JavaRDD<List<List<Writable>>> training = ttSplit[0].setName("training_" + i);
+                JavaRDD<List<List<Writable>>> testing = ttSplit[1].setName("testing_" + i++);
 
 
-            RecordWriter writer = new CSVRecordWriter();
+//            training.saveAsTextFile(FilenameUtils.concat(trainDir.getPath(), training.name()));
+//            testing.saveAsTextFile(FilenameUtils.concat(testDir.getPath(), testing.name()));
 
-            // process the clean data
-            while (processedRecordReader.hasNext()) {
-                List<Writable> row = processedRecordReader.next();
-                toWrite.add(row);
+                SparkStorageUtils.saveMapFileSequences(FilenameUtils.concat(trainDir.getAbsolutePath(), training.name()), training);
+                SparkStorageUtils.saveMapFileSequences(FilenameUtils.concat(testDir.getAbsolutePath(), testing.name()), testing);
+
             }
-
-            // write the clean data
-            writeCleanData(writer, toWrite, cleanPath);
-            toWrite.clear();
-        } catch (InterruptedException | IOException e) {
-            e.printStackTrace();
         }
 
-        return cleanFile;
+        // TODO: make each sequence the same length (https://deeplearning4j.konduit.ai/getting-started/tutorials/advanced-autoencoder#examine-sequence-lengths)
+        //       read in the sequences as TIME SERIES using EQUAL LENGTH (https://deeplearning4j.org/api/latest/org/datavec/api/records/reader/impl/csv/CSVMultiSequenceRecordReader.html)
+        //       create training and testing sets
+        //       train, test, plot
+
+        //
+
+        // initiate testing and training process
+        File[] trains = trainDir.listFiles();
+        File[] tests = testDir.listFiles();
+
+        if (trains != null && tests != null && (trains.length == tests.length)) {
+            Arrays.sort(trains);
+            Arrays.sort(tests);
+            for (int j = 0; j < trains.length; j++) {
+                initiateTestTrain(trains[j], tests[j]);
+            }
+        }
+
+        PlotUtil.plot(predictions, actuals);
+        System.out.println("done");
+//            processedRecordReader.initialize(new FileSplit(infile));
+//
+//
+//            RecordWriter writer = new CSVRecordWriter();
+//
+//            // process the clean data
+//            while (processedRecordReader.hasNext()) {
+//                List<Writable> row = processedRecordReader.next();
+//                toWrite.add(row);
+//            }
+//
+//            // write the clean data
+//            writeCleanData(writer, toWrite, cleanPath);
+//            toWrite.clear();
     }
 
     private void writeCleanData(RecordWriter writer, List<List<Writable>> toWrite, String outPath) {
@@ -235,64 +274,65 @@ public class CasePredictor {
         }
     }
 
-    private void initiateTestTrain(File file) {
+    private void initiateTestTrain(File trainDir, File testDir) {
+        int batchSize = 20;
         try {
-            // read in data
-            SequenceRecordReader reader = new CSVSequenceRecordReader();
-            reader.initialize(new FileSplit(file));
-            DataSetIterator iter = new SequenceRecordReaderDataSetIterator(reader, 50, 1, 2, true);
-            DataSet data = iter.next();
+            // read in training records
+            SequenceRecordReader trainRR = new MapFileSequenceRecordReader();
+            trainRR.initialize(new FileSplit(trainDir));
+            DataSetIterator trainIter = new SequenceRecordReaderDataSetIterator(trainRR, batchSize, 1, 2, true);
 
-            // normalize training data, then set preprocessor
-            SplitTestAndTrain ttSplit = data.splitTestAndTrain(0.7);
-            DataSet trainingData = ttSplit.getTrain();
+            // read in testing data
+            SequenceRecordReader testRR = new MapFileSequenceRecordReader();
+            testRR.initialize(new FileSplit(trainDir));
+            DataSetIterator testIter = new SequenceRecordReaderDataSetIterator(testRR, batchSize, 1, 2, true);
 
-//                NormalizerMinMaxScaler normalizer = new NormalizerMinMaxScaler();
-//                normalizer.fit(trainingData);
-//                iter.setPreProcessor(normalizer);
-//
-//                // split data into training and testing sets
-//                ttSplit = data.splitTestAndTrain(0.7);
-//                trainingData = ttSplit.getTrain();
-            DataSet testingData = ttSplit.getTest();
 
             // build or grab the model
-            MultiLayerNetwork model = getModel();
+            ComputationGraph model = getModel();
 
             // train model
-            for (int i = 0; i < 1000; i++) {
-                model.fit(trainingData);
-                model.rnnClearPreviousState();
-            }
+            model.fit(trainIter, 15);
 
             // save model
             ModelSerializer.writeModel(model, FilenameUtils.concat(rscDir.getPath(), "model.zip"), true);
 
             // test model
-            testModel(testingData, model);
+            testModel(testIter, model);
         } catch (IOException | InterruptedException e) {
             e.printStackTrace();
         }
     }
 
-    private void testModel(DataSet testingData, MultiLayerNetwork model) {
-        double[] predicted = new double[testingData.numExamples()];
-        double[] actual = new double[testingData.numExamples()];
+    private void testModel(DataSetIterator testIter, ComputationGraph model) {
+        testIter.reset();
+        DataSet testingData = testIter.next();
 
-        for (int i = 0; i < testingData.numExamples(); i++) {
-            predicted[i] = model.rnnTimeStep(testingData.get(i).getFeatures()).getDouble(0);
-            actual[i] = testingData.get(i).getLabels().getDouble(0);
+        double[] actual = new double[testingData.numExamples()];
+        double[] predicted = new double[testingData.numExamples()];
+
+        testIter.reset();
+        {
+            int i = 0;
+            while (testIter.hasNext() && i < testingData.getLabels().length()) {
+                testIter.reset();
+                DataSet timeStep = testIter.next(i + 1);
+                actual[i] = timeStep.getLabels().getDouble(i);
+                INDArray oop = model.output(timeStep.getFeatures())[0];
+                predicted[i] = oop.getDouble(i);
+                i++;
+            }
         }
 
         for (int i = 0; i < predicted.length; i++) {
             System.out.println(predicted[i] + "," + actual[i]);
         }
-        PlotUtil.plot(predicted, actual);
-        System.out.println("done");
+        predictions.add(predicted);
+        actuals.add(actual);
     }
 
-    private MultiLayerNetwork getModel() {
-        MultiLayerNetwork model = null;
+    private ComputationGraph getModel() {
+        ComputationGraph model = null;
         try {
             File savedModel = new File(FilenameUtils.concat(rscDir.getPath(), "model.zip"));
             if (!savedModel.exists()) {
@@ -306,47 +346,33 @@ public class CasePredictor {
                 double dropoutRatio = 0.2;
                 int truncatedBPTTLength = 22;
 
-                MultiLayerConfiguration conf = new NeuralNetConfiguration.Builder()
-                        .seed(seed)
+                ComputationGraphConfiguration conf = new NeuralNetConfiguration.Builder()
                         .optimizationAlgo(OptimizationAlgorithm.STOCHASTIC_GRADIENT_DESCENT)
+                        .seed(seed)
                         .weightInit(WeightInit.XAVIER)
-                        .weightDecay(1e-4)
-                        .list()
-                        .layer(0, new LSTM.Builder()
-                                .nIn(nIn)
-                                .nOut(lstmLayer1Size)
+                        .dropOut(0.25)
+                        .updater(new Adam())
+                        .graphBuilder()
+                        .addInputs("input")
+                        .addLayer("L1", new LSTM.Builder()
+                                .nIn(nIn).nOut(150)
+                                .gradientNormalization(GradientNormalization.ClipElementWiseAbsoluteValue)
+                                .gradientNormalizationThreshold(10)
                                 .activation(Activation.TANH)
-                                .gateActivationFunction(Activation.HARDSIGMOID)
-                                .dropOut(dropoutRatio)
-                                .build())
-                        .layer(1, new LSTM.Builder()
-                                .nIn(lstmLayer1Size)
-                                .nOut(lstmLayer2Size)
-                                .activation(Activation.TANH)
-                                .gateActivationFunction(Activation.HARDSIGMOID)
-                                .dropOut(dropoutRatio)
-                                .build())
-                        .layer(2, new DenseLayer.Builder()
-                                .nIn(lstmLayer2Size)
-                                .nOut(denseLayerSize)
-                                .activation(Activation.RELU)
-                                .build())
-                        .layer(3, new RnnOutputLayer.Builder()
-                                .nIn(denseLayerSize)
-                                .nOut(nOut)
-                                .activation(Activation.IDENTITY)
-                                .lossFunction(LossFunctions.LossFunction.MSE)
-                                .build())
-                        .backpropType(BackpropType.TruncatedBPTT)
-                        .tBPTTForwardLength(truncatedBPTTLength)
-                        .tBPTTBackwardLength(truncatedBPTTLength)
+                                .build(), "input")
+                        .addLayer("out1", new RnnOutputLayer.Builder(LossFunctions.LossFunction.XENT)
+                                .gradientNormalization(GradientNormalization.ClipElementWiseAbsoluteValue)
+                                .gradientNormalizationThreshold(10)
+                                .activation(Activation.SIGMOID)
+                                .nIn(150).nOut(nOut).build(), "L1")
+                        .setOutputs("out1")
                         .build();
 
-                model = new MultiLayerNetwork(conf);
+                model = new ComputationGraph(conf);
                 model.init();
                 model.setListeners(new ScoreIterationListener(100));
             } else {
-                model = ModelSerializer.restoreMultiLayerNetwork(FilenameUtils.concat(rscDir.getPath(), "model.zip"));
+                model = ModelSerializer.restoreComputationGraph(FilenameUtils.concat(rscDir.getPath(), "model.zip"));
             }
         } catch (IOException e) {
             e.printStackTrace();

@@ -9,17 +9,24 @@ import org.jfree.data.xy.XYSeries;
 import org.jfree.data.xy.XYSeriesCollection;
 
 import javax.swing.*;
+import java.util.List;
 
 public class PlotUtil {
-    public static void plot(double[] predicted, double[] actual) {
-        double[] index = new double[predicted.length];
-        for (int i = 0; i < predicted.length; i++) {
-            index[i] = i;
+    public static void plot(List<double[]> predictions, List<double[]> actuals) {
+        final XYSeriesCollection dataSet = new XYSeriesCollection();
+
+        for (int i = 0; i < predictions.size(); i++) {
+            double[] prediction = predictions.get(i);
+            double[] actual = actuals.get(i);
+
+            double[] index = new double[prediction.length];
+            for (int j = 0; j < prediction.length; j++) {
+                index[j] = j;
+            }
+            addSeries(dataSet, index, prediction, "Predicted_" + i);
+            addSeries(dataSet, index, actual, "Actual_" + i);
         }
 
-        final XYSeriesCollection dataSet = new XYSeriesCollection();
-        addSeries(dataSet, index, predicted, "Predicted");
-        addSeries(dataSet, index, actual, "Actual");
         final JFreeChart chart = ChartFactory.createXYLineChart(
                 "Expectations vs. Reality", // chart title
                 "Index", // x axis label
@@ -34,7 +41,7 @@ public class PlotUtil {
 
         // X-axis
         final NumberAxis domainAxis = (NumberAxis) xyPlot.getDomainAxis();
-        domainAxis.setRange((int) index[0], (int) (index[index.length - 1] + 2));
+        domainAxis.setRange(0, 20);
         domainAxis.setTickUnit(new NumberTickUnit(1));
         domainAxis.setVerticalTickLabels(true);
 
@@ -51,9 +58,9 @@ public class PlotUtil {
         f.setVisible(true);
     }
 
-    private static void addSeries (final XYSeriesCollection dataSet, double[] x, double[] y, final String label){
+    private static void addSeries(final XYSeriesCollection dataSet, double[] x, double[] y, final String label) {
         final XYSeries series = new XYSeries(label);
-        for( int j = 0; j < x.length; j++ ) {
+        for (int j = 0; j < x.length; j++) {
             series.add(x[j], y[j]);
         }
         dataSet.addSeries(series);
