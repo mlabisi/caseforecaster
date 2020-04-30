@@ -6,7 +6,6 @@ import org.datavec.api.records.reader.impl.csv.CSVRecordReader;
 import org.datavec.api.split.FileSplit;
 import org.datavec.api.writable.Writable;
 
-import java.io.File;
 import java.io.IOException;
 import java.net.MalformedURLException;
 import java.net.URL;
@@ -22,12 +21,30 @@ public class DataManager {
     private static Map<String, Integer> locationToFIPS = new HashMap<>();
     private static Map<Integer, String> FIPStoLocation = new HashMap<>();
 
-    public static Map<String, Integer> getLocationToFIPS() {
-        return locationToFIPS;
+    public static void initialize() {
+        Constants.getRscDir().mkdir();
+        downloadLatest();
+        processData();
     }
 
-    public static Map<Integer, String> getFIPStoLocation() {
-        return FIPStoLocation;
+    public static int getFipsFromLocation(String location) {
+        if(locationToFIPS.containsKey(location)) {
+            return locationToFIPS.get(location);
+        } else {
+            LOG.severe("‼️ Could not find " + location + " in database");
+        }
+
+        return -1;
+    }
+
+    public static String getLocationFromFips(int fips) {
+        if(FIPStoLocation.containsKey(fips)) {
+            return FIPStoLocation.get(fips);
+        } else {
+            LOG.severe("‼️ Could not find fips \"" + fips + "\" in database");
+        }
+
+        return "";
     }
 
     public static void downloadLatest() {
@@ -37,9 +54,8 @@ public class DataManager {
 
     private static void downloadStates() {
         try {
-            // store fresh copy of states csv in our resources file
-            File infile = Constants.getStatesRsc().getFile();
-            FileUtils.copyURLToFile(new URL(Constants.getStatesUrl()), infile);
+            // store fresh copy of states csv in our resources directory
+            FileUtils.copyURLToFile(new URL(Constants.getStatesUrl()), Constants.getStatesRsc());
         } catch (MalformedURLException e) {
             LOG.severe("‼️ Could not access " + Constants.getStatesUrl() +"\n" + e.getMessage());
         } catch (IOException e) {
@@ -49,9 +65,8 @@ public class DataManager {
 
     private static void downloadCounties() {
         try {
-            // store fresh copy of counties csv in our resources file
-            File infile = Constants.getCountiesRsc().getFile();
-            FileUtils.copyURLToFile(new URL(Constants.getCountiesUrl()), infile);
+            // store fresh copy of counties csv in our resources directory
+            FileUtils.copyURLToFile(new URL(Constants.getCountiesUrl()), Constants.getCountiesRsc());
         } catch (MalformedURLException e) {
             LOG.severe("‼️ Could not access " + Constants.getCountiesUrl() +"\n" + e.getMessage());
         } catch (IOException e) {
@@ -68,7 +83,7 @@ public class DataManager {
         try {
             // grab the raw data and convert it to record-like format
             RecordReader recordReader = new CSVRecordReader(1);
-            recordReader.initialize(new FileSplit(Constants.getStatesRsc().getFile()));
+            recordReader.initialize(new FileSplit(Constants.getStatesRsc()));
 
             // process the original data and build location to fips map
             while (recordReader.hasNext()) {
@@ -89,7 +104,7 @@ public class DataManager {
         try {
             // grab the raw data and convert it to record-like format
             RecordReader recordReader = new CSVRecordReader(1);
-            recordReader.initialize(new FileSplit(Constants.getCountiesRsc().getFile()));
+            recordReader.initialize(new FileSplit(Constants.getCountiesRsc()));
 
             // process the original data and build location to fips map
             while (recordReader.hasNext()) {

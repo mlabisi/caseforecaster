@@ -17,8 +17,8 @@ import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.logging.Logger;
 
-public class CaseDataSetIterator implements DataSetIterator {
-    private static final Logger LOG = Logger.getLogger(CaseDataSetIterator.class.getName());
+public class ObservationDataSetIterator implements DataSetIterator {
+    private static final Logger LOG = Logger.getLogger(ObservationDataSetIterator.class.getName());
 
     // number of features in each time series observation
     private final int FEATURES_CT = 1;
@@ -34,10 +34,11 @@ public class CaseDataSetIterator implements DataSetIterator {
     private List<ObservationData> trainingData;
     private List<Pair<INDArray, INDArray>> testingData;
 
-    public CaseDataSetIterator(String fips, int batchSize, int observationsCt, double splitFactor) {
+    public ObservationDataSetIterator(String fips, int batchSize, int observationsCt, double splitFactor) {
         List<ObservationData> timeSeries = Integer.parseInt(fips) > 56 ? parseCountyData(fips) : parseStateData(fips);
         this.batchSize = batchSize;
         this.observationsCt = observationsCt;
+        this.predictionCt = 1;
         int split = (int) Math.round(timeSeries.size() * splitFactor);
         trainingData = timeSeries.subList(0, split);
         testingData = generateTestingData(timeSeries.subList(split, timeSeries.size()));
@@ -51,7 +52,7 @@ public class CaseDataSetIterator implements DataSetIterator {
         }
 
         int practicalBatchSize = Math.min(num, pointerIndices.size());
-        INDArray features = Nd4j.create(new int[] {practicalBatchSize, FEATURES_CT}, 'f');
+        INDArray features = Nd4j.create(new int[] {practicalBatchSize, FEATURES_CT, observationsCt}, 'f');
         INDArray label = Nd4j.create(new int[] {practicalBatchSize, predictionCt, observationsCt}, 'f');
 
         // use each observation in this batch to create a time series
@@ -66,7 +67,7 @@ public class CaseDataSetIterator implements DataSetIterator {
                 int timeStep = j - start;
                 features.putScalar(new int[] {i, 0, timeStep}, thisObs.getCases());
                 nextObs = trainingData.get(j + 1);
-                label.putScalar(new int[] {i, 0, timeStep}, thisObs.getCases());
+                label.putScalar(new int[] {i, 0, timeStep}, nextObs.getCases());
                 thisObs = nextObs;
             }
             if (pointerIndices.size() == 0) {
@@ -83,10 +84,10 @@ public class CaseDataSetIterator implements DataSetIterator {
     private List<ObservationData> parseCountyData(String targetFips) {
         List<ObservationData> observationData = new ArrayList<>();
         try {
-            List<String[]> rawData = new CSVReader(new FileReader(Constants.getCountiesFilename())).readAll();
-            collectRows(targetFips, observationData, rawData);
+            List<String[]> rawData = new CSVReader(new FileReader(Constants.getCountiesRsc())).readAll();
+            observationData = collectRows(targetFips, rawData);
         } catch (IOException | CsvException e) {
-            LOG.severe("‼️ Could not read " + Constants.getCountiesFilename() + "\n" + e.getMessage());
+            LOG.severe("‼️ Could not read " + Constants.getCountiesRsc() + "\n" + e.getMessage());
         }
         return observationData;
     }
@@ -95,26 +96,28 @@ public class CaseDataSetIterator implements DataSetIterator {
         List<ObservationData> observationData = new ArrayList<>();
         try {
             List<String[]> rawData = new CSVReader(new FileReader(Constants.getStatesFilename())).readAll();
-            collectRows(targetFips, observationData, rawData);
+            observationData = collectRows(targetFips, rawData);
         } catch (IOException | CsvException e) {
-            LOG.severe("‼️ Could not read " + Constants.getCountiesFilename() + "\n" + e.getMessage());
+            LOG.severe("‼️ Could not read " + Constants.getCountiesRsc() + "\n" + e.getMessage());
         }
         return observationData;
     }
 
-    private void collectRows(String targetFips, List<ObservationData> observationData, List<String[]> rawData) {
+    private List<ObservationData> collectRows(String targetFips, List<String[]> rawData) {
+        List<ObservationData> observationData = new ArrayList<>();
         for (String[] row : rawData) {
             String fips;
-            if (!(fips = row[row.length - 2]).equals(targetFips)) {
+            if (!(fips = row[row.length - 3]).equals(targetFips)) {
                 continue;
             }
 
             String date = row[0];
-            String location = DataManager.getFIPStoLocation().get(Integer.parseInt(fips));
-            int cases = Integer.parseInt(row[row.length - 1]);
+            String location = DataManager.getLocationFromFips(Integer.parseInt(fips));
+            int cases = Integer.parseInt(row[row.length - 2]);
 
             observationData.add(new ObservationData(date, location, fips, cases));
         }
+        return observationData;
     }
 
     private List<Pair<INDArray, INDArray>> generateTestingData(List<ObservationData> observationData) {
