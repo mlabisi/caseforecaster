@@ -5,7 +5,6 @@ import org.datavec.api.records.reader.RecordReader;
 import org.datavec.api.records.reader.impl.csv.CSVRecordReader;
 import org.datavec.api.split.FileSplit;
 import org.datavec.api.writable.Writable;
-import org.nd4j.linalg.io.ClassPathResource;
 
 import java.io.File;
 import java.io.IOException;
@@ -39,7 +38,7 @@ public class DataManager {
     private static void downloadStates() {
         try {
             // store fresh copy of states csv in our resources file
-            File infile = new ClassPathResource(Constants.getStatesFilename()).getFile();
+            File infile = Constants.getStatesRsc().getFile();
             FileUtils.copyURLToFile(new URL(Constants.getStatesUrl()), infile);
         } catch (MalformedURLException e) {
             LOG.severe("‼️ Could not access " + Constants.getStatesUrl() +"\n" + e.getMessage());
@@ -51,7 +50,7 @@ public class DataManager {
     private static void downloadCounties() {
         try {
             // store fresh copy of counties csv in our resources file
-            File infile = new ClassPathResource(Constants.getCountiesFilename()).getFile();
+            File infile = Constants.getCountiesRsc().getFile();
             FileUtils.copyURLToFile(new URL(Constants.getCountiesUrl()), infile);
         } catch (MalformedURLException e) {
             LOG.severe("‼️ Could not access " + Constants.getCountiesUrl() +"\n" + e.getMessage());
@@ -69,7 +68,7 @@ public class DataManager {
         try {
             // grab the raw data and convert it to record-like format
             RecordReader recordReader = new CSVRecordReader(1);
-            recordReader.initialize(new FileSplit(new ClassPathResource(Constants.getStatesFilename()).getFile()));
+            recordReader.initialize(new FileSplit(Constants.getStatesRsc().getFile()));
 
             // process the original data and build location to fips map
             while (recordReader.hasNext()) {
@@ -90,7 +89,7 @@ public class DataManager {
         try {
             // grab the raw data and convert it to record-like format
             RecordReader recordReader = new CSVRecordReader(1);
-            recordReader.initialize(new FileSplit(new ClassPathResource(Constants.getCountiesFilename()).getFile()));
+            recordReader.initialize(new FileSplit(Constants.getCountiesRsc().getFile()));
 
             // process the original data and build location to fips map
             while (recordReader.hasNext()) {
