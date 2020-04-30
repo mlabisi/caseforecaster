@@ -95,10 +95,10 @@ public class ObservationDataSetIterator implements DataSetIterator {
     private List<ObservationData> parseStateData(String targetFips) {
         List<ObservationData> observationData = new ArrayList<>();
         try {
-            List<String[]> rawData = new CSVReader(new FileReader(Constants.getStatesFilename())).readAll();
+            List<String[]> rawData = new CSVReader(new FileReader(Constants.getStatesRsc())).readAll();
             observationData = collectRows(targetFips, rawData);
         } catch (IOException | CsvException e) {
-            LOG.severe("‼️ Could not read " + Constants.getCountiesRsc() + "\n" + e.getMessage());
+            LOG.severe("‼️ Could not read " + Constants.getStatesRsc() + "\n" + e.getMessage());
         }
         return observationData;
     }

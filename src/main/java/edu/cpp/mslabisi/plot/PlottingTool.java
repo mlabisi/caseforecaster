@@ -36,7 +36,7 @@ public class PlottingTool {
 
         // X-axis
         final NumberAxis domainAxis = (NumberAxis) xyPlot.getDomainAxis();
-        domainAxis.setRange(0, index.length);
+        domainAxis.setRange(0, 10);
         domainAxis.setTickUnit(new NumberTickUnit(1));
         domainAxis.setVerticalTickLabels(true);
 
@@ -48,7 +48,7 @@ public class PlottingTool {
         final ChartPanel panel = new ChartPanel(chart);
         final JFrame f = new JFrame();
         f.add(panel);
-        f.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
+//        f.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
         f.pack();
         f.setVisible(true);
     }

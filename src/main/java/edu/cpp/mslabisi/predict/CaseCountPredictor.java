@@ -36,8 +36,8 @@ public class CaseCountPredictor {
             System.out.print("Please enter a date: ");
             String date = in.nextLine();
 
-            makePrediction("Snohomish, Washington", "2020-05-24");
-//            makePrediction(location, date);
+//            makePrediction("Snohomish, Washington", "2020-05-24");
+            makePrediction(location, date);
             System.out.print("Would you like to make another prediction? (Y/N): ");
         } while (in.nextLine().equalsIgnoreCase("y"));
     }
