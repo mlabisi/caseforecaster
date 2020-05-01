@@ -14,10 +14,10 @@ import java.util.logging.Logger;
 public class CaseCountPredictor {
     private static final Logger LOG = Logger.getLogger(CaseCountPredictor.class.getName());
 
-    private static int observationsCt = 20; // # of observations used to predict next day's case ct
+    private static int observationsCt = 21; // # of observations used to predict next day's case ct
     private static int batchSize = 50; // # of observations to be handled at a time
-    private static double splitFactor = 0.7; // aka % of observations to be used for training
-    private static int epochs = 100; // training epochs
+    private static double splitFactor = 0.5; // aka % of observations to be used for training
+    private static int epochs = 111; // training epochs
 
     public static void main(String[] args) {
         setup();
@@ -37,8 +37,7 @@ public class CaseCountPredictor {
             System.out.print("Please enter a date: ");
             String date = in.nextLine();
 
-            makePrediction("Snohomish, Washington", "2020-05-24");
-//            makePrediction(location, date);
+            makePrediction(location, date);
             System.out.print("Would you like to make another prediction? (Y/N): ");
             answer = in.nextLine();
         } while (answer.startsWith("y") || answer.startsWith("Y"));

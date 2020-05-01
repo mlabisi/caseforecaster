@@ -10,7 +10,7 @@ import org.deeplearning4j.nn.graph.ComputationGraph;
 import org.deeplearning4j.nn.weights.WeightInit;
 import org.deeplearning4j.optimize.listeners.ScoreIterationListener;
 import org.nd4j.linalg.activations.Activation;
-import org.nd4j.linalg.learning.config.Adam;
+import org.nd4j.linalg.learning.config.AMSGrad;
 import org.nd4j.linalg.lossfunctions.LossFunctions;
 
 import java.io.IOException;
@@ -21,11 +21,7 @@ public class RNN {
 
     private static final int seed = 54321;
     private static final int layer1Size = 156;
-    private static final int layer2Size = 156;
-    private static final int denseLayerSize = 32;
-    private static final double dropout = 0.25;
     private static final double learningRate = 0.005;
-    private static final int tBPTTLength = 40;
     private static final int nIn = 1;
     private static final int nOut = 1;
 
@@ -37,7 +33,7 @@ public class RNN {
                     .seed(seed)
                     .optimizationAlgo(OptimizationAlgorithm.STOCHASTIC_GRADIENT_DESCENT)
                     .weightInit(WeightInit.XAVIER)
-                    .updater(new Adam(learningRate))
+                    .updater(new AMSGrad(learningRate))
                     .graphBuilder()
                     .addInputs("features")
                     .setOutputs("caseCt")
