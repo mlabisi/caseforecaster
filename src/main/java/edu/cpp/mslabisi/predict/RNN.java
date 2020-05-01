@@ -1,6 +1,7 @@
 package edu.cpp.mslabisi.predict;
 
 import edu.cpp.mslabisi.data.Constants;
+import org.deeplearning4j.nn.api.NeuralNetwork;
 import org.deeplearning4j.nn.api.OptimizationAlgorithm;
 import org.deeplearning4j.nn.conf.BackpropType;
 import org.deeplearning4j.nn.conf.MultiLayerConfiguration;
@@ -30,7 +31,7 @@ public class RNN {
     private static final int nIn = 1;
     private static final int nOut = 1;
 
-    public static MultiLayerNetwork getModel() {
+    public static NeuralNetwork getModel() {
         MultiLayerNetwork model = null;
         if (!Constants.getModelRsc().exists()) {
             // configure model
