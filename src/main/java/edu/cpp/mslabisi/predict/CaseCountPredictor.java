@@ -15,7 +15,7 @@ public class CaseCountPredictor {
     private static final Logger LOG = Logger.getLogger(CaseCountPredictor.class.getName());
 
     private static int observationsCt = 20; // # of observations used to predict next day's case ct
-    private static int batchSize = 40; // # of observations to be handled at a time
+    private static int batchSize = 50; // # of observations to be handled at a time
     private static double splitFactor = 0.7; // aka % of observations to be used for training
     private static int epochs = 100; // training epochs
 
@@ -36,10 +36,11 @@ public class CaseCountPredictor {
             System.out.print("Please enter a date: ");
             String date = in.nextLine();
 
-//            makePrediction("Snohomish, Washington", "2020-05-24");
-            makePrediction(location, date);
+            makePrediction("Snohomish, Washington", "2020-05-24");
+//            makePrediction(location, date);
             System.out.print("Would you like to make another prediction? (Y/N): ");
         } while (in.nextLine().equalsIgnoreCase("y"));
+        System.exit(0);
     }
 
     private static void makePrediction(String location, String date) {
@@ -81,16 +82,19 @@ public class CaseCountPredictor {
         model = RNN.restoreModel();
 
         LOG.info("⚙️ Testing LSTM model");
-        predictAndPlot(model, testingData);
+        int max = iterator.getMaxArray()[0];
+        int min = iterator.getMinArray()[0];
+        predictAndPlot(model, testingData, max, min);
 
     }
 
-    private static void predictAndPlot(MultiLayerNetwork model, List<Pair<INDArray, INDArray>> testingData) {
+    private static void predictAndPlot(MultiLayerNetwork model, List<Pair<INDArray, INDArray>> testingData, int max, int min) {
         double[] predictions = new double[testingData.size()];
         double[] actuals = new double[testingData.size()];
 
+
         for (int i = 0; i < testingData.size(); i++) {
-            predictions[i] = model.rnnTimeStep(testingData.get(i).getKey()).getDouble(observationsCt - 1);
+            predictions[i] = model.rnnTimeStep(testingData.get(i).getKey()).getDouble(observationsCt - 1) * (max - min) + min;
             actuals[i] = testingData.get(i).getValue().getDouble(0);
         }
         LOG.info("🔍 Expectations vs Reality for LSTM model");

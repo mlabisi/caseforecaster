@@ -27,6 +27,10 @@ public class ObservationDataSetIterator implements DataSetIterator {
     private int observationsCt; // how many days of data do we want to take in?
     private int predictionCt; // how many days do we want to predict?
 
+    // used to perform min-max normalization
+    private int[] minArray = new int[FEATURES_CT];
+    private int[] maxArray = new int[FEATURES_CT];
+
     // used to keep track of starting index for each batch, current location pointer
     // will be the head of this linked list
     private LinkedList<Integer> pointerIndices = new LinkedList<>();
@@ -65,9 +69,9 @@ public class ObservationDataSetIterator implements DataSetIterator {
 
             for(int j = start; j < end; j++) {
                 int timeStep = j - start;
-                features.putScalar(new int[] {i, 0, timeStep}, thisObs.getCases());
+                features.putScalar(new int[] {i, 0, timeStep}, (thisObs.getCases() - minArray[0]) / (maxArray[0] - minArray[0]));
                 nextObs = trainingData.get(j + 1);
-                label.putScalar(new int[] {i, 0, timeStep}, nextObs.getCases());
+                label.putScalar(new int[] {i, 0, timeStep}, (nextObs.getCases() - minArray[0]) / (maxArray[0] - minArray[0]));
                 thisObs = nextObs;
             }
             if (pointerIndices.size() == 0) {
@@ -75,6 +79,14 @@ public class ObservationDataSetIterator implements DataSetIterator {
             }
         }
         return new DataSet(features, label);
+    }
+
+    public int[] getMinArray() {
+        return minArray;
+    }
+
+    public int[] getMaxArray() {
+        return maxArray;
     }
 
     public List<Pair<INDArray, INDArray>> getTestingData() {
@@ -105,17 +117,25 @@ public class ObservationDataSetIterator implements DataSetIterator {
 
     private List<ObservationData> collectRows(String targetFips, List<String[]> rawData) {
         List<ObservationData> observationData = new ArrayList<>();
+
+        for (int i = 0; i < maxArray.length; i++) {
+            maxArray[i] = Integer.MIN_VALUE;
+            minArray[i] = Integer.MAX_VALUE;
+        }
+
         for (String[] row : rawData) {
             String fips;
             if (!(fips = row[row.length - 3]).equals(targetFips)) {
                 continue;
             }
 
-            String date = row[0];
             String location = DataManager.getLocationFromFips(Integer.parseInt(fips));
             int cases = Integer.parseInt(row[row.length - 2]);
 
-            observationData.add(new ObservationData(date, location, fips, cases));
+            if(cases > maxArray[0]) maxArray[0] = cases;
+            else if(cases < minArray[0]) minArray[0] = cases;
+
+            observationData.add(new ObservationData(row[0], location, fips, cases));
         }
         return observationData;
     }
@@ -131,7 +151,7 @@ public class ObservationDataSetIterator implements DataSetIterator {
             INDArray features = Nd4j.create(new int[]{observationsCt, FEATURES_CT}, 'f');
             for (int j = i; j < i + observationsCt; j++) {
                 ObservationData observation = observationData.get(j);
-                features.putScalar(new int[] {j - i, 0}, observation.getCases());
+                features.putScalar(new int[] {j - i, 0}, (observation.getCases() - minArray[0]) / (maxArray[0] - minArray[0]));
             }
             ObservationData observation = observationData.get(i + observationsCt);
             INDArray label = Nd4j.create(new int[] {1}, 'f');

@@ -4,7 +4,7 @@ public class ObservationData {
     private String date;
     private String location;
     private String fips;
-    private int cases;
+    private double cases;
 
     public ObservationData(String date, String location, String fips, int cases) {
         this.date = date;
@@ -37,11 +37,11 @@ public class ObservationData {
         this.fips = fips;
     }
 
-    public int getCases() {
+    public double getCases() {
         return cases;
     }
 
-    public void setCases(int cases) {
+    public void setCases(double cases) {
         this.cases = cases;
     }
 }
