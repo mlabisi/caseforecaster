@@ -13,7 +13,7 @@ import org.jfree.data.xy.XYSeriesCollection;
 import javax.swing.*;
 
 public class PlottingTool {
-    public static void plot(double[] predicted, double[] actual) {
+    public static void plot(double[] predicted, double[] actual, int max) {
         double[] index = new double[predicted.length];
         for (int i = 0; i < predicted.length; i++) {
             index[i] = i;
@@ -42,13 +42,13 @@ public class PlottingTool {
 
         // Y-axis
         final NumberAxis rangeAxis = (NumberAxis) xyPlot.getRangeAxis();
-        rangeAxis.setRange(0, 10000);
+        rangeAxis.setRange(0, 1500 * (((double)max / 1500) + 10));
         rangeAxis.setTickUnit(new NumberTickUnit(1500));
 
         final ChartPanel panel = new ChartPanel(chart);
         final JFrame f = new JFrame();
         f.add(panel);
-        f.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
+//        f.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
         f.pack();
         f.setVisible(true);
     }

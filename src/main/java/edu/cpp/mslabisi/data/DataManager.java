@@ -9,6 +9,8 @@ import org.datavec.api.writable.Writable;
 import java.io.IOException;
 import java.net.MalformedURLException;
 import java.net.URL;
+import java.time.LocalDate;
+import java.time.Period;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -20,6 +22,9 @@ public class DataManager {
     // create index for mapping names to fips
     private static Map<String, Integer> locationToFIPS = new HashMap<>();
     private static Map<Integer, String> FIPStoLocation = new HashMap<>();
+
+    // store the most recent date for time-series step calculation
+    private static String lastDate = "";
 
     public static void initialize() {
         Constants.getRscDir().mkdir();
@@ -35,6 +40,13 @@ public class DataManager {
         }
 
         return -1;
+    }
+
+    public static int getDaysDifference(String targetDate) {
+        LocalDate last = LocalDate.parse(lastDate);
+        LocalDate target = LocalDate.parse(targetDate);
+        Period difference = Period.between(last, target);
+        return difference.getDays();
     }
 
     public static String getLocationFromFips(int fips) {
@@ -89,6 +101,7 @@ public class DataManager {
             while (recordReader.hasNext()) {
                 List<Writable> row = recordReader.next();
                 if (!row.get(2).toString().equals("")) {
+                    lastDate = row.get(0).toString();
                     String location = row.get(1).toString();
                     int fips = row.get(2).toInt();
                     locationToFIPS.put(location, fips);
