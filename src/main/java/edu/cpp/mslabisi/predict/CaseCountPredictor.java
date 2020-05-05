@@ -89,7 +89,7 @@ public class CaseCountPredictor {
 //        else {
 
         int prediction = (int) Math.round(predict(model, testingData.get(testingData.size() - 1).getKey(), testingData.get(testingData.size() - 1).getValue().getDouble(0), timeSteps, max, min));
-        System.out.println("I predict " + location + " will have an accumulative total of " + prediction + " cases on  " + date + ".");
+        System.out.println("I predict " + location + " will have an accumulative total of " + prediction + " cases on " + date + ".");
         //    }
     }
 
