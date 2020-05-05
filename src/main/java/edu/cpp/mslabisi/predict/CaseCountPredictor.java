@@ -9,6 +9,7 @@ import org.nd4j.linalg.api.ndarray.INDArray;
 import org.nd4j.linalg.factory.Nd4j;
 import org.nd4j.linalg.primitives.Pair;
 
+import javax.swing.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.util.List;
@@ -26,6 +27,8 @@ public class CaseCountPredictor {
     private UserInterface ui;
 
     public static void main(String[] args) {
+        DataManager.initialize();
+
         (new CaseCountPredictor()).start();
     }
 
@@ -36,24 +39,24 @@ public class CaseCountPredictor {
         epochs = 111;
 
         ui = new UserInterface();
-        ui.initWelcome();
+
 
         ui.getBeginBtn().addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
-
+                SwingUtilities.invokeLater(new Runnable() {
+                    @Override
+                    public void run() {
+                        ui.showLocation();
+                    }
+                });
             }
         });
+
     }
 
     public void start() {
-        setup();
         userLoop();
-    }
-
-    private void setup() {
-        DataManager.initialize();
-        ui.showWelcome(true);
     }
 
     private void userLoop() {

@@ -14,6 +14,7 @@ import java.time.Period;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.logging.Logger;
 
 public class DataManager {
@@ -30,6 +31,10 @@ public class DataManager {
         Constants.getRscDir().mkdir();
         downloadLatest();
         processData();
+    }
+
+    public static Set<String> getLocations() {
+        return locationToFIPS.keySet();
     }
 
     public static int getFipsFromLocation(String location) {
