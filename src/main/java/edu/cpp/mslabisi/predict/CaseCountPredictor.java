@@ -2,6 +2,7 @@ package edu.cpp.mslabisi.predict;
 
 import edu.cpp.mslabisi.data.DataManager;
 import edu.cpp.mslabisi.data.ObservationDataSetIterator;
+import edu.cpp.mslabisi.plot.PlottingTool;
 import org.deeplearning4j.nn.graph.ComputationGraph;
 import org.nd4j.linalg.api.ndarray.INDArray;
 import org.nd4j.linalg.factory.Nd4j;
@@ -82,11 +83,12 @@ public class CaseCountPredictor {
         LOG.info("⚙️ Testing LSTM model");
         int max = iterator.getMaxArray()[0];
         int min = iterator.getMinArray()[0];
-        int prediction = predict(model, testingData, timeSteps, max, min);
-        System.out.println("I predict there will be " + prediction + " cases in " + location + " on " + date + ".");
+//        int prediction = testAndPlot(model, testingData, timeSteps, max, min);
+        int prediction = (int) Math.round(predict(model, testingData.get(testingData.size() - 1).getKey(), testingData.get(testingData.size() - 1).getValue().getDouble(0), timeSteps, max, min));
+        System.out.println("I predict " + location + " will have an accumulative total of " + prediction + " cases on  " + date + ".");
     }
 
-    private static int predict(ComputationGraph model, List<Pair<INDArray, INDArray>> testingData, int timeSteps, int max, int min) {
+    private static void testAndPlot(ComputationGraph model, List<Pair<INDArray, INDArray>> testingData, int timeSteps, int max, int min) {
         double[] predictions = new double[testingData.size()];
         double[] actuals = new double[testingData.size()];
 
@@ -100,20 +102,19 @@ public class CaseCountPredictor {
             LOG.info(actuals[i] + ", " + predictions[i]);
         }
 
-//        LOG.info("📈 Now plotting results");
-//        PlottingTool.plot(predictions, actuals, max);
+        LOG.info("📈 Now plotting results");
+        PlottingTool.plot(predictions, actuals, max);
 
-        return (int) Math.round(predict(model, testingData.get(testingData.size() - 1).getKey(), testingData.get(testingData.size() - 1).getValue().getDouble(0), timeSteps, max, min));
     }
 
     private static double predict(ComputationGraph model, INDArray features, double label, int timeSteps, int max, int min) {
         INDArray inputs = Nd4j.create(features.rows(), 1);
+        timeSteps = Math.min(timeSteps, observationsCt);
         for (int i = 0; i < features.rows() - 1; i++) {
             inputs.putScalar(i, 0, features.getDouble(i + 1, 0));
         }
         inputs.putScalar(features.rows() - 1, 0, (label - min) / (max - min));
         label = model.rnnTimeStep(inputs)[0].getDouble(timeSteps) * (max - min) + min;
-
         return label;
     }
 }
