@@ -83,9 +83,14 @@ public class CaseCountPredictor {
         LOG.info("⚙️ Testing LSTM model");
         int max = iterator.getMaxArray()[0];
         int min = iterator.getMinArray()[0];
-//        int prediction = testAndPlot(model, testingData, timeSteps, max, min);
+
+//        if (debugMode) {
+//        testAndPlot(model, testingData, timeSteps, max, min);
+//        else {
+
         int prediction = (int) Math.round(predict(model, testingData.get(testingData.size() - 1).getKey(), testingData.get(testingData.size() - 1).getValue().getDouble(0), timeSteps, max, min));
         System.out.println("I predict " + location + " will have an accumulative total of " + prediction + " cases on  " + date + ".");
+        //    }
     }
 
     private static void testAndPlot(ComputationGraph model, List<Pair<INDArray, INDArray>> testingData, int timeSteps, int max, int min) {
