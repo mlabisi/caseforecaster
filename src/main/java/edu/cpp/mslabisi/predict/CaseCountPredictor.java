@@ -2,12 +2,15 @@ package edu.cpp.mslabisi.predict;
 
 import edu.cpp.mslabisi.data.DataManager;
 import edu.cpp.mslabisi.data.ObservationDataSetIterator;
+import edu.cpp.mslabisi.gui.UserInterface;
 import edu.cpp.mslabisi.plot.PlottingTool;
 import org.deeplearning4j.nn.graph.ComputationGraph;
 import org.nd4j.linalg.api.ndarray.INDArray;
 import org.nd4j.linalg.factory.Nd4j;
 import org.nd4j.linalg.primitives.Pair;
 
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
 import java.util.List;
 import java.util.Scanner;
 import java.util.logging.Logger;
@@ -15,21 +18,45 @@ import java.util.logging.Logger;
 public class CaseCountPredictor {
     private static final Logger LOG = Logger.getLogger(CaseCountPredictor.class.getName());
 
-    private static int observationsCt = 21; // # of observations used to predict next day's case ct
-    private static int batchSize = 50; // # of observations to be handled at a time
-    private static double splitFactor = 0.5; // aka % of observations to be used for training
-    private static int epochs = 111; // training epochs
+    private int observationsCt; // # of observations used to predict next day's case ct
+    private int batchSize; // # of observations to be handled at a time
+    private double splitFactor; // aka % of observations to be used for training
+    private int epochs; // training epochs
+
+    private UserInterface ui;
 
     public static void main(String[] args) {
+        (new CaseCountPredictor()).start();
+    }
+
+    public CaseCountPredictor() {
+        observationsCt = 21;
+        batchSize = 50;
+        splitFactor = 0.5;
+        epochs = 111;
+
+        ui = new UserInterface();
+        ui.initWelcome();
+
+        ui.getBeginBtn().addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+
+            }
+        });
+    }
+
+    public void start() {
         setup();
         userLoop();
     }
 
-    private static void setup() {
+    private void setup() {
         DataManager.initialize();
+        ui.showWelcome(true);
     }
 
-    private static void userLoop() {
+    private void userLoop() {
         Scanner in = new Scanner(System.in);
         String answer;
         do {
@@ -45,7 +72,7 @@ public class CaseCountPredictor {
         System.exit(0);
     }
 
-    private static void makePrediction(String location, String date) {
+    private void makePrediction(String location, String date) {
         // take in a county and a date --> predict cases
         // perhaps give a dropdown to select county,
         // and calendar excluding today and past
@@ -93,7 +120,7 @@ public class CaseCountPredictor {
         //    }
     }
 
-    private static void testAndPlot(ComputationGraph model, List<Pair<INDArray, INDArray>> testingData, int timeSteps, int max, int min) {
+    private void testAndPlot(ComputationGraph model, List<Pair<INDArray, INDArray>> testingData, int timeSteps, int max, int min) {
         double[] predictions = new double[testingData.size()];
         double[] actuals = new double[testingData.size()];
 
@@ -112,7 +139,7 @@ public class CaseCountPredictor {
 
     }
 
-    private static double predict(ComputationGraph model, INDArray features, double label, int timeSteps, int max, int min) {
+    private double predict(ComputationGraph model, INDArray features, double label, int timeSteps, int max, int min) {
         INDArray inputs = Nd4j.create(features.rows(), 1);
         timeSteps = Math.min(timeSteps, observationsCt);
         for (int i = 0; i < features.rows() - 1; i++) {
