@@ -12,13 +12,12 @@ import edu.cpp.mslabisi.data.DataManager;
 
 import javax.swing.*;
 import java.awt.*;
+import java.time.LocalDate;
 
 public class UserInterface {
     // frames
     private JFrame mainFrame;
 
-    // panels
-    private JPanel welcomePanel;
     private JPanel locationPanel;
     private JPanel datePanel;
     private JPanel predictionPanel;
@@ -27,6 +26,7 @@ public class UserInterface {
     // outputs
     private JLabel heading;
     private EventList<String> locations;
+    private JTextArea message;
 
 
     // inputs
@@ -48,16 +48,23 @@ public class UserInterface {
         mainFrame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
 
         heading = new JLabel();
+        message = new JTextArea();
+        message.setLineWrap(true);
+        message.setWrapStyleWord(true);
+
         locations = new BasicEventList<>();
         locations.addAll(DataManager.getLocations());
 
         initWelcome();
         initLocation();
         initDate();
+        initPrediction();
+        initGoodbye();
     }
 
     private void initWelcome() {
-        welcomePanel = new JPanel();
+        // panels
+        JPanel welcomePanel = new JPanel();
         beginBtn = new JButton("Begin");
         welcomePanel.setBorder(BorderFactory.createEmptyBorder(50, 250, 100, 250));
         mainFrame.add(welcomePanel, BorderLayout.CENTER);
@@ -97,7 +104,7 @@ public class UserInterface {
 
         DatePickerSettings pickerSettings = new DatePickerSettings();
         datePicker = new DatePicker(pickerSettings);
-        pickerSettings.setVetoPolicy(new DateVetoPolicyMinimumMaximumDate(DataManager.getMinDate(), DataManager.getMaxDate()));
+        pickerSettings.setVetoPolicy(new DateVetoPolicyMinimumMaximumDate(LocalDate.now(), DataManager.getMaxDate()));
         datePanel.add(datePicker, getConstraints(1, 16, 1));
 
         heading.setText("2. Choose a Date");
@@ -106,7 +113,13 @@ public class UserInterface {
         datePanel.add(dateBtn);
     }
 
-    private void showGoodbye() {
+    private void initPrediction() {
+        predictionPanel = new JPanel();
+        predictAgainBtn = new JButton("New Prediction");
+        finishBtn = new JButton("Done");
+    }
+
+    private void initGoodbye() {
         goodbyePanel = new JPanel();
         exitBtn = new JButton("Exit");
         goodbyePanel.setBorder(BorderFactory.createEmptyBorder(50, 250, 100, 250));
@@ -114,22 +127,6 @@ public class UserInterface {
         heading.setText("Wash your hands.\nStay Inside.\nBe safe.\n");
         goodbyePanel.add(heading);
         goodbyePanel.add(exitBtn);
-    }
-
-    public void showPrediction(String location, int prediction, String date) {
-        predictionPanel = new JPanel();
-        predictAgainBtn = new JButton("New Prediction");
-        finishBtn = new JButton("Done");
-        JPanel buttonsContainer = new JPanel();
-        buttonsContainer.setLayout(new FlowLayout(FlowLayout.CENTER));
-        buttonsContainer.add(predictAgainBtn);
-        buttonsContainer.add(finishBtn);
-
-        heading.setText("I predict " + DataManager.getCaseDifference(prediction) + " new cases in "
-                + location + " on " + date + ". This brings the total case count in " + location
-                + " to " + prediction + ".");
-        predictionPanel.add(heading);
-        predictionPanel.add(buttonsContainer);
     }
 
     public JButton getBeginBtn() {
@@ -146,6 +143,32 @@ public class UserInterface {
     public void showDate() {
         mainFrame.getContentPane().removeAll();
         mainFrame.getContentPane().add(datePanel, BorderLayout.CENTER);
+        mainFrame.revalidate();
+        mainFrame.repaint();
+    }
+
+    public void showPrediction(String location, int prediction, LocalDate date) {
+        message.setText("I predict " + DataManager.getCaseDifference(prediction) + " new cases in "
+                + location + " on " + date.toString() + ". This brings the total case count in " + location
+                + " to " + prediction + ".");
+        predictionPanel.add(message);
+
+        JPanel buttonsContainer = new JPanel();
+        buttonsContainer.setLayout(new FlowLayout(FlowLayout.CENTER));
+        buttonsContainer.add(predictAgainBtn);
+        buttonsContainer.add(finishBtn);
+
+        predictionPanel.add(buttonsContainer);
+
+        mainFrame.getContentPane().removeAll();
+        mainFrame.getContentPane().add(predictionPanel, BorderLayout.CENTER);
+        mainFrame.revalidate();
+        mainFrame.repaint();
+    }
+
+    public void showGoodbye() {
+        mainFrame.getContentPane().removeAll();
+        mainFrame.getContentPane().add(goodbyePanel, BorderLayout.CENTER);
         mainFrame.revalidate();
         mainFrame.repaint();
     }

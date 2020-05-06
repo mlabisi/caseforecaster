@@ -11,7 +11,9 @@ import org.nd4j.linalg.primitives.Pair;
 
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.time.LocalDate;
 import java.util.List;
+import java.util.Objects;
 import java.util.Scanner;
 import java.util.logging.Logger;
 
@@ -57,7 +59,7 @@ public class CaseCountPredictor {
             ui.getLocationBtn().addActionListener(new ActionListener() {
                 @Override
                 public void actionPerformed(ActionEvent e) {
-                    location = ui.getLocationBox().getToolTipText();
+                    location = Objects.requireNonNull(ui.getLocationBox().getSelectedItem()).toString();
                     ui.showDate(/*location*/);
                 }
             });
@@ -65,9 +67,10 @@ public class CaseCountPredictor {
             ui.getDateBtn().addActionListener(new ActionListener() {
                 @Override
                 public void actionPerformed(ActionEvent e) {
-                    date = ui.getDatePicker().getComponentDateTextField().getText();
-                    makePrediction(location, date, false);
-                    ui.showPrediction(location, prediction, date);
+                    LocalDate lDate = ui.getDatePicker().getDate();
+                    date = lDate.toString();
+                    makePrediction(location, date.toString(), false);
+                    ui.showPrediction(location, prediction, lDate);
                 }
             });
 
@@ -81,7 +84,7 @@ public class CaseCountPredictor {
             ui.getFinishBtn().addActionListener(new ActionListener() {
                 @Override
                 public void actionPerformed(ActionEvent e) {
-                    ui.showLocation();
+                    ui.showGoodbye();
                 }
             });
 
@@ -133,6 +136,7 @@ public class CaseCountPredictor {
 
         LOG.info("⚙️ Training LSTM model");
         for (int i = 0; i < epochs; i++) {
+            iterator.next(10);
             while (iterator.hasNext()) {
                 model.fit(iterator.next());
             }
@@ -149,12 +153,13 @@ public class CaseCountPredictor {
         int max = iterator.getMaxArray()[0];
         int min = iterator.getMinArray()[0];
 
+        prediction = (int) Math.round(predict(model, testingData.get(testingData.size() - 1).getKey(), testingData.get(testingData.size() - 1).getValue().getDouble(0), timeSteps, max, min));
+
         if (cliMode) {
             testAndPlot(model, testingData, timeSteps, max, min);
-        } else {
-            prediction = (int) Math.round(predict(model, testingData.get(testingData.size() - 1).getKey(), testingData.get(testingData.size() - 1).getValue().getDouble(0), timeSteps, max, min));
-
-            System.out.println("I predict " + location + " will have an accumulative total of " + prediction + " cases on " + date + ".");
+            System.out.println("I predict " + DataManager.getCaseDifference(prediction) + " new cases in "
+                    + location + " on " + date + ". This brings the total case count in " + location
+                    + " to " + prediction + ".");
         }
     }
 
