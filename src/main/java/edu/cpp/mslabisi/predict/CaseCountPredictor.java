@@ -69,7 +69,7 @@ public class CaseCountPredictor {
                 public void actionPerformed(ActionEvent e) {
                     LocalDate lDate = ui.getDatePicker().getDate();
                     date = lDate.toString();
-                    makePrediction(location, date.toString(), false);
+                    makePrediction(location, date, false);
                     ui.showPrediction(location, prediction, lDate);
                 }
             });
@@ -157,9 +157,7 @@ public class CaseCountPredictor {
 
         if (cliMode) {
             testAndPlot(model, testingData, timeSteps, max, min);
-            System.out.println("I predict " + DataManager.getCaseDifference(prediction) + " new cases in "
-                    + location + " on " + date + ". This brings the total case count in " + location
-                    + " to " + prediction + ".");
+            System.out.println("I predict there will be a total of " + prediction + " cases in " + location + " on " + date + ".");
         }
     }
 

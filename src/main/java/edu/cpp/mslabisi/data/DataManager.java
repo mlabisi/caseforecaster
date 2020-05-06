@@ -27,8 +27,6 @@ public class DataManager {
     private static LocalDate minDate;
     private static LocalDate maxDate;
 
-    private static int lastCaseCt;
-
     public static void initialize() {
         Constants.getRscDir().mkdir();
         downloadLatest();
@@ -47,12 +45,8 @@ public class DataManager {
         return maxDate;
     }
 
-    public static int getLastCaseCt() {
-        return lastCaseCt;
-    }
-
     public static int getFipsFromLocation(String location) {
-        if(locationToFIPS.containsKey(location)) {
+        if (locationToFIPS.containsKey(location)) {
             return locationToFIPS.get(location);
         } else {
             LOG.severe("‼️ Could not find " + location + " in database");
@@ -67,12 +61,8 @@ public class DataManager {
         return difference.getDays();
     }
 
-    public static double getCaseDifference(double newCaseCt) {
-        return newCaseCt - lastCaseCt;
-    }
-
     public static String getLocationFromFips(int fips) {
-        if(FIPStoLocation.containsKey(fips)) {
+        if (FIPStoLocation.containsKey(fips)) {
             return FIPStoLocation.get(fips);
         } else {
             LOG.severe("‼️ Could not find fips \"" + fips + "\" in database");
@@ -91,9 +81,9 @@ public class DataManager {
             // store fresh copy of states csv in our resources directory
             FileUtils.copyURLToFile(new URL(Constants.getStatesUrl()), Constants.getStatesRsc());
         } catch (MalformedURLException e) {
-            LOG.severe("‼️ Could not access " + Constants.getStatesUrl() +"\n" + e.getMessage());
+            LOG.severe("‼️ Could not access " + Constants.getStatesUrl() + "\n" + e.getMessage());
         } catch (IOException e) {
-            LOG.severe("‼️ Could not create " + Constants.getStatesFilename() +"\n" + e.getMessage());
+            LOG.severe("‼️ Could not create " + Constants.getStatesFilename() + "\n" + e.getMessage());
         }
     }
 
@@ -102,9 +92,9 @@ public class DataManager {
             // store fresh copy of counties csv in our resources directory
             FileUtils.copyURLToFile(new URL(Constants.getCountiesUrl()), Constants.getCountiesRsc());
         } catch (MalformedURLException e) {
-            LOG.severe("‼️ Could not access " + Constants.getCountiesUrl() +"\n" + e.getMessage());
+            LOG.severe("‼️ Could not access " + Constants.getCountiesUrl() + "\n" + e.getMessage());
         } catch (IOException e) {
-            LOG.severe("‼️ Could not create " + Constants.getCountiesFilename() +"\n" + e.getMessage());
+            LOG.severe("‼️ Could not create " + Constants.getCountiesFilename() + "\n" + e.getMessage());
         }
     }
 
@@ -125,7 +115,6 @@ public class DataManager {
                 if (!row.get(2).toString().equals("")) {
                     // store the most recent date for time-series step calculation
                     String lastDate = row.get(0).toString();
-                    lastCaseCt = row.get(3).toInt();
                     minDate = LocalDate.parse(lastDate);
                     String location = row.get(1).toString();
                     int fips = row.get(2).toInt();

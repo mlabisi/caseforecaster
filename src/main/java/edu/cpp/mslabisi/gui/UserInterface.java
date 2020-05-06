@@ -148,9 +148,7 @@ public class UserInterface {
     }
 
     public void showPrediction(String location, int prediction, LocalDate date) {
-        message.setText("I predict " + DataManager.getCaseDifference(prediction) + " new cases in "
-                + location + " on " + date.toString() + ". This brings the total case count in " + location
-                + " to " + prediction + ".");
+        message.setText("I predict there will be a total of " + prediction + " cases in " + location + " on " + date + ".");
         predictionPanel.add(message);
 
         JPanel buttonsContainer = new JPanel();
