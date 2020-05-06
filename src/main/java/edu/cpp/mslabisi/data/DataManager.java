@@ -24,8 +24,10 @@ public class DataManager {
     private static Map<String, Integer> locationToFIPS = new HashMap<>();
     private static Map<Integer, String> FIPStoLocation = new HashMap<>();
 
-    // store the most recent date for time-series step calculation
-    private static String lastDate = "";
+    private static LocalDate minDate;
+    private static LocalDate maxDate;
+
+    private static int lastCaseCt;
 
     public static void initialize() {
         Constants.getRscDir().mkdir();
@@ -35,6 +37,18 @@ public class DataManager {
 
     public static Set<String> getLocations() {
         return locationToFIPS.keySet();
+    }
+
+    public static LocalDate getMinDate() {
+        return minDate;
+    }
+
+    public static LocalDate getMaxDate() {
+        return maxDate;
+    }
+
+    public static int getLastCaseCt() {
+        return lastCaseCt;
     }
 
     public static int getFipsFromLocation(String location) {
@@ -48,10 +62,13 @@ public class DataManager {
     }
 
     public static int getDaysDifference(String targetDate) {
-        LocalDate last = LocalDate.parse(lastDate);
         LocalDate target = LocalDate.parse(targetDate);
-        Period difference = Period.between(last, target);
+        Period difference = Period.between(minDate, target);
         return difference.getDays();
+    }
+
+    public static double getCaseDifference(double newCaseCt) {
+        return newCaseCt - lastCaseCt;
     }
 
     public static String getLocationFromFips(int fips) {
@@ -106,13 +123,18 @@ public class DataManager {
             while (recordReader.hasNext()) {
                 List<Writable> row = recordReader.next();
                 if (!row.get(2).toString().equals("")) {
-                    lastDate = row.get(0).toString();
+                    // store the most recent date for time-series step calculation
+                    String lastDate = row.get(0).toString();
+                    lastCaseCt = row.get(3).toInt();
+                    minDate = LocalDate.parse(lastDate);
                     String location = row.get(1).toString();
                     int fips = row.get(2).toInt();
                     locationToFIPS.put(location, fips);
                     FIPStoLocation.put(fips, location);
                 }
             }
+
+            maxDate = minDate.plusDays(21);
         } catch (InterruptedException | IOException e) {
             LOG.severe("‼️ Could not collect states\n" + e.getMessage());
         }

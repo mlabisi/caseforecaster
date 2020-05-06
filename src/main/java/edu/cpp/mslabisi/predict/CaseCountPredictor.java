@@ -9,7 +9,6 @@ import org.nd4j.linalg.api.ndarray.INDArray;
 import org.nd4j.linalg.factory.Nd4j;
 import org.nd4j.linalg.primitives.Pair;
 
-import javax.swing.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.util.List;
@@ -24,35 +23,75 @@ public class CaseCountPredictor {
     private double splitFactor; // aka % of observations to be used for training
     private int epochs; // training epochs
 
+    private String location;
+    private String date;
+    private int prediction;
+
     private UserInterface ui;
 
     public static void main(String[] args) {
         DataManager.initialize();
 
-        (new CaseCountPredictor()).start();
+//        new CaseCountPredictor(true);
+        new CaseCountPredictor(false);
     }
 
-    public CaseCountPredictor() {
+    public CaseCountPredictor(boolean cliMode) {
         observationsCt = 21;
         batchSize = 50;
         splitFactor = 0.5;
         epochs = 111;
 
-        ui = new UserInterface();
+        if(cliMode) {
+            start();
+        } else {
+            ui = new UserInterface();
 
+            ui.getBeginBtn().addActionListener(new ActionListener() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    ui.showLocation();
+                }
+            });
 
-        ui.getBeginBtn().addActionListener(new ActionListener() {
-            @Override
-            public void actionPerformed(ActionEvent e) {
-                SwingUtilities.invokeLater(new Runnable() {
-                    @Override
-                    public void run() {
-                        ui.showLocation();
-                    }
-                });
-            }
-        });
+            ui.getLocationBtn().addActionListener(new ActionListener() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    location = ui.getLocationBox().getToolTipText();
+                    ui.showDate(/*location*/);
+                }
+            });
 
+            ui.getDateBtn().addActionListener(new ActionListener() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    date = ui.getDatePicker().getComponentDateTextField().getText();
+                    makePrediction(location, date, false);
+                    ui.showPrediction(location, prediction, date);
+                }
+            });
+
+            ui.getPredictAgainBtn().addActionListener(new ActionListener() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    ui.showLocation();
+                }
+            });
+
+            ui.getFinishBtn().addActionListener(new ActionListener() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    ui.showLocation();
+                }
+            });
+
+            ui.getExitBtn().addActionListener(new ActionListener() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    System.exit(0);
+                }
+            });
+        }
     }
 
     public void start() {
@@ -68,18 +107,14 @@ public class CaseCountPredictor {
             System.out.print("Please enter a date:\n> ");
             String date = in.nextLine();
 
-            makePrediction(location, date);
+            makePrediction(location, date, true);
             System.out.print("Would you like to make another prediction?\n> ");
             answer = in.nextLine();
         } while (answer.startsWith("y") || answer.startsWith("Y"));
         System.exit(0);
     }
 
-    private void makePrediction(String location, String date) {
-        // take in a county and a date --> predict cases
-        // perhaps give a dropdown to select county,
-        // and calendar excluding today and past
-
+    private void makePrediction(String location, String date, boolean cliMode) {
         int fips = DataManager.getFipsFromLocation(location);
         int timeSteps = DataManager.getDaysDifference(date);
 
@@ -114,13 +149,13 @@ public class CaseCountPredictor {
         int max = iterator.getMaxArray()[0];
         int min = iterator.getMinArray()[0];
 
-//        if (debugMode) {
-//        testAndPlot(model, testingData, timeSteps, max, min);
-//        else {
+        if (cliMode) {
+            testAndPlot(model, testingData, timeSteps, max, min);
+        } else {
+            prediction = (int) Math.round(predict(model, testingData.get(testingData.size() - 1).getKey(), testingData.get(testingData.size() - 1).getValue().getDouble(0), timeSteps, max, min));
 
-        int prediction = (int) Math.round(predict(model, testingData.get(testingData.size() - 1).getKey(), testingData.get(testingData.size() - 1).getValue().getDouble(0), timeSteps, max, min));
-        System.out.println("I predict " + location + " will have an accumulative total of " + prediction + " cases on " + date + ".");
-        //    }
+            System.out.println("I predict " + location + " will have an accumulative total of " + prediction + " cases on " + date + ".");
+        }
     }
 
     private void testAndPlot(ComputationGraph model, List<Pair<INDArray, INDArray>> testingData, int timeSteps, int max, int min) {
