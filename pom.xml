@@ -17,7 +17,7 @@
         <datavec-spark.version>1.0.0-beta4_spark_1</datavec-spark.version>
         <jfreechart.version>1.5.0</jfreechart.version>
         <spark.version>2.4.3</spark.version>
-        <netty.version>4.1.33.Final</netty.version>
+        <netty.version>4.1.42.Final</netty.version>
         <jackson.version>2.11.0</jackson.version>
         <opencsv.version>5.1</opencsv.version>
         <glazedlists.version>1.11.0</glazedlists.version>
