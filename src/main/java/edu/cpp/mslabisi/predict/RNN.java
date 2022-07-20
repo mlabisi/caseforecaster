@@ -20,7 +20,7 @@ public class RNN {
     private static final Logger LOG = Logger.getLogger(RNN.class.getName());
 
     private static final int seed = 54321;
-    private static final int layer1Size = 156;
+    private static final int layer1Size = 1; // 156; not working due to mismatched shape :/
     private static final double learningRate = 0.005;
     private static final int nIn = 1;
     private static final int nOut = 1;

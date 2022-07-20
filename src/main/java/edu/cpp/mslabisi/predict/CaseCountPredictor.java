@@ -7,7 +7,7 @@ import edu.cpp.mslabisi.plot.PlottingTool;
 import org.deeplearning4j.nn.graph.ComputationGraph;
 import org.nd4j.linalg.api.ndarray.INDArray;
 import org.nd4j.linalg.factory.Nd4j;
-import org.nd4j.linalg.primitives.Pair;
+import org.nd4j.common.primitives.Pair;
 
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
@@ -34,8 +34,7 @@ public class CaseCountPredictor {
     public static void main(String[] args) {
         DataManager.initialize();
 
-//        new CaseCountPredictor(true);
-        new CaseCountPredictor(false);
+        new CaseCountPredictor(args.length > 0 && args[0].equalsIgnoreCase("--cli"));
     }
 
     public CaseCountPredictor(boolean cliMode) {

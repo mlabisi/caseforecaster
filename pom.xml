@@ -6,22 +6,23 @@
 
     <groupId>mslabisi</groupId>
     <artifactId>caseforecaster</artifactId>
-    <version>1.0-SNAPSHOT</version>
+    <version>1.0.0</version>
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <deeplearning4j.version>1.0.0-beta6</deeplearning4j.version>
-        <nd4j.version>1.0.0-beta6</nd4j.version>
-        <datavec.version>1.0.0-beta6</datavec.version>
-        <guava.version>15.0</guava.version>
-        <datavec-spark.version>1.0.0-beta4_spark_1</datavec-spark.version>
-        <jfreechart.version>1.5.0</jfreechart.version>
-        <spark.version>2.4.3</spark.version>
-        <netty.version>4.1.42.Final</netty.version>
-        <jackson.version>2.11.0</jackson.version>
-        <opencsv.version>5.1</opencsv.version>
+        <deeplearning4j.version>1.0.0-M2</deeplearning4j.version>
+        <nd4j.version>1.0.0-M2</nd4j.version>
+        <datavec.version>1.0.0-M2</datavec.version>
+        <guava.version>31.1-jre</guava.version>
+        <datavec-spark.version>1.0.0-M2</datavec-spark.version>
+        <jfreechart.version>1.5.3</jfreechart.version>
+        <spark.version>3.3.0</spark.version>
+        <netty.version>4.1.79.Final</netty.version>
+        <jackson.version>2.13.3</jackson.version>
+        <opencsv.version>5.6</opencsv.version>
         <glazedlists.version>1.11.0</glazedlists.version>
-        <datepicker.version>10.3.1</datepicker.version>
+        <datepicker.version>11.2.1</datepicker.version>
+        <execmaven.version>3.1.0</execmaven.version>
     </properties>
 
     <build>
@@ -50,6 +51,14 @@
                     </archive>
                 </configuration>
             </plugin>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>${execmaven.version}</version>
+                <configuration>
+                    <mainClass>edu.cpp.mslabisi.predict.CaseCountPredictor</mainClass>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
 
@@ -66,17 +75,17 @@
         </dependency>
         <dependency>
             <groupId>org.datavec</groupId>
-            <artifactId>datavec-spark_2.10</artifactId>
+            <artifactId>datavec-spark_2.12</artifactId>
             <version>${datavec-spark.version}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.spark</groupId>
-            <artifactId>spark-sql_2.11</artifactId>
+            <artifactId>spark-sql_2.13</artifactId>
             <version>${spark.version}</version>
         </dependency>
         <dependency>
             <groupId>org.nd4j</groupId>
-            <artifactId>nd4j-native-platform</artifactId>
+            <artifactId>nd4j-native</artifactId>
             <version>${nd4j.version}</version>
         </dependency>
         <dependency>

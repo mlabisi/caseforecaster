@@ -7,7 +7,7 @@ import org.nd4j.linalg.dataset.DataSet;
 import org.nd4j.linalg.dataset.api.DataSetPreProcessor;
 import org.nd4j.linalg.dataset.api.iterator.DataSetIterator;
 import org.nd4j.linalg.factory.Nd4j;
-import org.nd4j.linalg.primitives.Pair;
+import org.nd4j.common.primitives.Pair;
 
 import java.io.FileReader;
 import java.io.IOException;
@@ -146,7 +146,7 @@ public class ObservationDataSetIterator implements DataSetIterator {
 
         // for each observation in a window of size n = observationCt, use the features to predict the
         // next observation's label (aka, the features of the label we're trying to predict are each of
-        // the n previous observations.
+        // the n previous observations.)
         for (int i = 0; i < observationData.size() - n; i++) {
             INDArray features = Nd4j.create(new int[]{observationsCt, FEATURES_CT}, 'f');
             for (int j = i; j < i + observationsCt; j++) {
