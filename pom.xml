@@ -18,7 +18,7 @@
         <jfreechart.version>1.5.3</jfreechart.version>
         <spark.version>3.3.0</spark.version>
         <netty.version>4.1.79.Final</netty.version>
-        <jackson.version>2.13.3</jackson.version>
+        <jackson.version>2.13.4.1</jackson.version>
         <opencsv.version>5.6</opencsv.version>
         <glazedlists.version>1.11.0</glazedlists.version>
         <datepicker.version>11.2.1</datepicker.version>
