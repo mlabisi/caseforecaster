@@ -12,7 +12,7 @@ A COVID-19 Case Forecaster that uses different markers/attributes from around th
 ```
 git clone https://github.com/mlabisi/casepredictor.git
 ```
-2. Install dependencies and Compile
+2. Install dependencies
 ```
 cd casepredictor
 mvn clean install -U
