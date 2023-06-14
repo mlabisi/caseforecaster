@@ -13,7 +13,7 @@
         <deeplearning4j.version>1.0.0-M2</deeplearning4j.version>
         <nd4j.version>1.0.0-M2</nd4j.version>
         <datavec.version>1.0.0-M2</datavec.version>
-        <guava.version>31.1-jre</guava.version>
+        <guava.version>32.0.0-jre</guava.version>
         <datavec-spark.version>1.0.0-M2</datavec-spark.version>
         <jfreechart.version>1.5.3</jfreechart.version>
         <spark.version>3.3.0</spark.version>
